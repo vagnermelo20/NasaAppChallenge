@@ -88,12 +88,20 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - [x] **B14** Revisão visual solicitada: atlas escuro/satélite, símbolos proporcionais por centro de célula, grade alternativa, legenda horizontal, contorno regional e expansão do mapa · R7/R8
 - [x] **B21** Visual solicitado baseado no FIRMS: satélite como fundo padrão e pontos vermelhos pequenos nas coordenadas reais dos arquivos anuais de focos; grade mensal preservada como opção. Filtro por mês/sensor/região, sem halos nem posições inventadas. 23 testes passaram; aparência no Chrome aguarda conferência do usuário.
-- [ ] **B15** Destaque e anomalia usando o **último mês completo** (out/2026), não nov/2026 (incompleto) · R9
-- [ ] **B16** Fire map lendo `grid_sat.parquet` (mesma preparação científica; já tem 2026), somando `n` por satélite × mês
-- [ ] **B17** About, Methodology e README: fonte real carregada, figuras `prova_antes_depois.png` / `prova_pantanal.png`, A2 não atingido na célula + regra "mês de pico confiável em áreas ≥ ~2° ou com centenas de focos"; métricas do método final em destaque · R11
-- [ ] **B18** Busca por datas exatas (R12): seletor de intervalo (até 92 dias, até 200 mil focos) lendo só os anos pedidos de `data/processed/focos/`; tabela + CSV dos focos (data, hora UTC, satélite, lat/lon, FRP) rotulada "observação por sensor"; comparação do mesmo intervalo entre anos pela soma de `peso_harmonizado` ("aproximado" antes de 2012)
+- [ ] **B15** 🔴 Destaque e anomalia usando o **último mês completo** (out/2026). Hoje `latest_comparison` (app.py) pega o último mês com dado (nov/2026, incompleto) e mostra "Incomplete month" sem a comparação com a mediana. Ajuste: escolher o último mês com `incompleto == False` e, se o mês mais recente estiver incompleto, mostrar um aviso ao lado · R9
+- [x] **B16** Fire map lendo `grid_sat.parquet` — feito no B21 (mapa usa `grid_sat` e os pontos de `data/processed/focos/`)
+- [ ] **B17** 🔴 Textos: as figuras da prova e o resultado do A2 já aparecem na Methodology (B21). **Falta:** a regra de uso do mês de pico ("confiável em áreas de ~2° ou mais, ou com centenas de focos; em áreas pequenas, leia ±1 mês") perto do calendário; About sem menção a mock quando o dado real está carregado; números do pitch iguais aos da metodologia (mensal 66%, anual 92%) · R11
+- [ ] **B18** 🔴 Busca por datas exatas (R12): os pontos já aparecem no mapa por mês/sensor (B21). **Falta:** seletor de intervalo de datas (até 92 dias, até 200 mil focos) lendo só os anos pedidos de `data/processed/focos/`; tabela + CSV dos focos (data, hora UTC, satélite, lat/lon, FRP) rotulada "observação por sensor"; comparação do mesmo intervalo entre anos pela soma de `peso_harmonizado` ("aproximado" antes de 2012)
 - [ ] **B19** (opcional) Faixa de incerteza de 90% antes de 2012 (`metrics.json → prova_harmonizacao → faixa_incerteza`)
 - [ ] **B20** Conferência manual de `app/VERIFY.md` (Chrome, celular, PNG, região vazia)
+
+**Roteiro do B (ordem sugerida, atualizado em 14/11/2026 depois do B21):**
+1. **B15** — último mês completo no destaque (rápido; conserta a demo do R9).
+2. **B17** — regra do mês de pico e textos finais (rápido; é o que o jurado lê).
+3. **B18** — busca por datas + CSV de focos (a maior; fecha o "specific date range" e o "CSV of hot spots" do enunciado).
+4. **B10** e **B20** — acabamento, acessibilidade e conferência manual no Chrome/celular.
+5. **B19** — faixa de incerteza (opcional, se sobrar tempo).
+6. Com isso pronto: **J1** publicar → **J3** gravar o vídeo com o app no ar → **J2** README final → **J4** enviar.
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
 
 Integração B11: Fire map abre na série real `harmonized.parquet` (2001–2025),

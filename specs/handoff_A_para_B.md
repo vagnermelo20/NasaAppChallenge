@@ -37,7 +37,7 @@
 - **A2 não atingido na célula** (73,7%; ±1 mês 90,4%). O critério não foi mudado; o app deve avisar que o mês de pico é confiável em áreas de ~2° ou mais, ou com centenas de focos.
 - Números para o pitch: mensal **66%** (±20%, região 2°), anual **92%**; nunca apresentar o 92% como acurácia geral.
 
-**Tarefas do B (detalhes no `tasks.md`):** B15 último mês completo (out/2026) no destaque · B16 Fire map no `grid_sat` · B17 textos e figuras da prova · B18 busca por datas com `peso_harmonizado` · B19 faixa de incerteza (opcional) · B20 VERIFY.md.
+**Tarefas do B (detalhes e ordem no `tasks.md`, seção "Roteiro do B"):** B15 último mês completo (out/2026) no destaque · ~~B16 Fire map no `grid_sat`~~ (feito no B21) · B17 regra do mês de pico e textos finais · B18 busca por datas com `peso_harmonizado` · B10/B20 acabamento e VERIFY.md · B19 faixa de incerteza (opcional).
 
 **Como usar a base de focos (B18):** leia só os anos do intervalo, por exemplo
 `SELECT * FROM read_parquet(['data/processed/focos/focos_2020.parquet']) WHERE data BETWEEN ? AND ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`.
