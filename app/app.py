@@ -163,6 +163,64 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
                    'dataset', 'region_wkt']]
 
 
+@st.fragment
+def region_map(mode: str) -> None:
+    """Keep draft edits inside the map; query only after explicit application."""
+    st.caption('Draw or edit an area, then click Apply map selection to update the calendar.')
+    view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap')
+    # Leaflet and Leaflet.Draw cover all features used here. Extra Bootstrap,
+    # jQuery and icon CDN requests can otherwise hold up the iframe loader.
+    view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
+    view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
+    if mode == 'Draw on map':
+        editable = folium.FeatureGroup(name='Selected areas').add_to(view)
+        seed = st.session_state.get('map_seed_wkt')
+        if seed:
+            geometry = shapely.from_wkt(seed)
+            parts = list(geometry.geoms) if geometry.geom_type == 'MultiPolygon' else [geometry]
+            for part in parts:
+                folium.Polygon(
+                    locations=[[(y, x) for x, y in ring.coords]
+                               for ring in [part.exterior, *part.interiors]],
+                    color='#35B779', fill_opacity=0.15,
+                ).add_to(editable)
+        Draw(feature_group=editable, show_geometry_on_click=False, draw_options={
+            'polyline': False, 'circle': False, 'circlemarker': False,
+            'marker': False, 'rectangle': True, 'polygon': {'allowIntersection': False},
+        }).add_to(view)
+    elif st.session_state['regiao']:
+        polygon = shapely.from_wkt(st.session_state['regiao'])
+        folium.GeoJson(mapping(polygon), style_function=lambda _: {
+            'color': '#35B779', 'weight': 2, 'fillOpacity': 0.15}).add_to(view)
+        west, south, east, north = polygon.bounds
+        view.fit_bounds([[south, west], [north, east]])
+    output = st_folium(view, height=400, use_container_width=True,
+                       key=f"region_map_{mode}_{st.session_state['map_revision']}",
+                       returned_objects=['all_drawings'] if mode == 'Draw on map' else [])
+    if mode == 'Draw on map':
+        valid = True
+        if output and output.get('all_drawings') is not None:
+            event = json.dumps(output['all_drawings'], sort_keys=True)
+            if event != st.session_state.get('last_map_event'):
+                try:
+                    draft = drawn_region(output)
+                except (ValueError, KeyError, shapely.GEOSException) as error:
+                    st.error(str(error))
+                    valid = False
+                else:
+                    st.session_state['draft_region'] = draft
+                    st.session_state['last_map_event'] = event
+        pending = st.session_state.get('draft_region') != st.session_state['regiao']
+        st.caption('Selection changed — apply it to refresh the results.' if pending
+                   else 'Calendar uses the applied region shown below.')
+        if st.button('Apply map selection', key='apply_map', disabled=not valid):
+            region = st.session_state.get('draft_region')
+            st.session_state['regiao'] = region
+            st.session_state['region_label'] = 'Drawn area' if region else 'Brazil · entire dataset'
+            st.rerun()
+    st.caption('If the map does not load, use Lat-Lon + radius in the sidebar. The calendar works without the map.')
+
+
 def main() -> None:
     st.set_page_config(page_title='Harmonized Burning Activity Calendar', page_icon='🌍', layout='wide')
     st.caption('NASA SPACE APPS CHALLENGE · BRAZIL PILOT')
@@ -193,6 +251,7 @@ def main() -> None:
         mode = st.radio('Region selection', ['Draw on map', 'Lat-Lon + radius'], key='region_mode')
         if mode != st.session_state.get('previous_mode'):
             st.session_state['map_seed_wkt'] = st.session_state['regiao']
+            st.session_state['draft_region'] = st.session_state['regiao']
             st.session_state.pop('last_map_event', None)
             st.session_state['previous_mode'] = mode
         with st.form('filters'):
@@ -203,10 +262,10 @@ def main() -> None:
                 years = (first_year, last_year)
                 st.caption(f'Available year: {first_year}')
             if mode == 'Lat-Lon + radius':
-                lat = st.number_input('Latitude (°)', -34.0, 6.0, -18.0, key='latitude')
-                lon = st.number_input('Longitude (°)', -74.0, -34.0, -56.5, key='longitude')
+                lat = st.number_input('Latitude (°)', -34.0, 6.0, -18.0, key='latitude', persist_state='session')
+                lon = st.number_input('Longitude (°)', -74.0, -34.0, -56.5, key='longitude', persist_state='session')
                 radius = st.number_input('Radius (km)', 5.0, 500.0, 50.0, key='radius',
-                                         help='Cells are included when their centers lie inside the circle.')
+                                         help='Cells are included when their centers lie inside the circle.', persist_state='session')
             submitted = st.form_submit_button('Update', width='stretch', key='update')
         if submitted or 'applied_years' not in st.session_state:
             st.session_state['applied_years'] = years
@@ -218,6 +277,7 @@ def main() -> None:
             st.session_state['region_label'] = 'Brazil · entire dataset'
             st.session_state['map_revision'] += 1
             st.session_state['map_seed_wkt'] = None
+            st.session_state['draft_region'] = None
             st.session_state.pop('last_map_event', None)
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
@@ -225,48 +285,10 @@ def main() -> None:
     calendar_tab, trends, methodology, about = st.tabs(['Calendar', 'Trends', 'Methodology', 'About'])
     with calendar_tab:
         st.subheader('Select an area')
-        st.caption('Draw an area to filter. Multiple shapes are combined. Edit or delete shapes with the map toolbar.')
-        map_view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap')
-        if mode == 'Draw on map':
-            editable = folium.FeatureGroup(name='Selected areas').add_to(map_view)
-            seed = st.session_state['map_seed_wkt']
-            if seed:
-                geometry = shapely.from_wkt(seed)
-                parts = list(geometry.geoms) if geometry.geom_type == 'MultiPolygon' else [geometry]
-                for part in parts:
-                    rings = [part.exterior, *part.interiors]
-                    folium.Polygon(
-                        locations=[[(y, x) for x, y in ring.coords] for ring in rings],
-                        color='#35B779', fill_opacity=0.15,
-                    ).add_to(editable)
-            Draw(feature_group=editable, show_geometry_on_click=False, draw_options={
-                'polyline': False, 'circle': False, 'circlemarker': False,
-                'marker': False, 'rectangle': True, 'polygon': {'allowIntersection': False},
-            }).add_to(map_view)
-        if mode == 'Lat-Lon + radius' and st.session_state['regiao']:
-            selected_polygon = shapely.from_wkt(st.session_state['regiao'])
-            folium.GeoJson(mapping(selected_polygon),
-                           style_function=lambda _: {'color': '#35B779', 'weight': 2,
-                                                     'fillOpacity': 0.15}).add_to(map_view)
-            west, south, east, north = selected_polygon.bounds
-            map_view.fit_bounds([[south, west], [north, east]])
-        # This third-party component has no width='stretch' equivalent.
-        output = st_folium(map_view, height=400, use_container_width=True,
-                           key=f"region_map_{mode}_{st.session_state['map_revision']}",
-                           returned_objects=['all_drawings', 'last_active_drawing'])
-        if mode == 'Draw on map' and output and output.get('all_drawings') is not None:
-            event = json.dumps(output.get('all_drawings'), sort_keys=True)
-            if event != st.session_state.get('last_map_event'):
-                try:
-                    region = drawn_region(output)
-                except (ValueError, KeyError, shapely.GEOSException) as error:
-                    st.error(str(error))
-                else:
-                    st.session_state['last_map_event'] = event
-                    if region != st.session_state['regiao']:
-                        st.session_state['regiao'] = region
-                        st.session_state['region_label'] = 'Drawn area' if region else 'Brazil · entire dataset'
-                        st.rerun()
+        if mode == 'Draw on map' or st.toggle('Show map preview', value=False, key='show_map'):
+            region_map(mode)
+        else:
+            st.caption('Set coordinates and radius in the sidebar, then click Update. Map preview is optional.')
         start, end = st.session_state['applied_years']
         start, end = max(first_year, start), min(last_year, end)
         if start > end:

@@ -100,6 +100,8 @@ class ApplicationTests(unittest.TestCase):
             payload['all_drawings'] = [{'geometry': mapping(box(-58, -20, -55, -16))}]
             app.run()
             self.assertFalse(app.exception)
+            self.assertIsNone(app.session_state['regiao'])
+            app.button(key='apply_map').click().run()
             selected = app.session_state['regiao']
             self.assertIsNotNone(selected)
             app.run()
@@ -107,6 +109,8 @@ class ApplicationTests(unittest.TestCase):
             payload['all_drawings'] = []
             app.run()
             self.assertFalse(app.exception)
+            self.assertEqual(app.session_state['regiao'], selected)
+            app.button(key='apply_map').click().run()
             self.assertIsNone(app.session_state['regiao'])
 
     def test_coordinate_update_reset_and_download(self):
@@ -123,6 +127,9 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(app.session_state['applied_years'], (2015, 2020))
             self.assertIsNotNone(app.session_state['regiao'])
             self.assertEqual(len(app.get('download_button')), 1)
+            app.radio(key='region_mode').set_value('Draw on map').run()
+            app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
+            self.assertEqual(app.number_input(key='radius').value, 100.)
             app.button(key='reset_region').click().run()
             self.assertFalse(app.exception)
             self.assertIsNone(app.session_state['regiao'])

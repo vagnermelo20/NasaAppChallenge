@@ -76,6 +76,12 @@ Seleção por coordenadas validada na aplicação; eventos de desenho/edição/e
 Interação Leaflet e exportação PNG no navegador aguardam conferência manual (controle do Chrome não autorizado).
 Checkpoint 4 com o arquivo real continua pendente.
 
+Ajuste de estabilidade B3: desenho/edição ficam em um fragmento isolado e só atualizam
+o calendário após **Apply map selection**. No modo por coordenadas, a prévia do mapa
+é opcional; os campos persistem ao trocar de modo. Recursos externos reduzidos a
+Leaflet + Leaflet.Draw (2 scripts e 2 estilos). Sete testes passaram após o ajuste;
+consulta por coordenadas confirmada em execução sem carregar o componente do mapa.
+
 ---
 
 ## Juntos (A + B) — Entrega · A4
