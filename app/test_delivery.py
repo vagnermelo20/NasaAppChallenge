@@ -15,10 +15,33 @@ from shapely.geometry import Point, box, mapping
 from streamlit.testing.v1 import AppTest
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
-                     drawn_region, export_table, latest_comparison, radius_polygon)
+                     data_source, drawn_region, export_table, latest_comparison, metadata,
+                     radius_polygon)
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_dataset_contract_reports_missing_and_invalid_values(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'missing.parquet'
+            pd.DataFrame({'lat': [0.]}).to_parquet(path)
+            with self.assertRaisesRegex(ValueError, 'Missing columns'):
+                metadata(str(path), path.stat().st_mtime_ns)
+            invalid = Path(temporary) / 'invalid.parquet'
+            pd.DataFrame({'lat': [-18.], 'lon': [-56.], 'ano': [2025], 'mes': [1],
+                          'focos_harmonizados': [-1.], 'fonte': ['viirs'],
+                          'dado_incompleto': [False]}).to_parquet(invalid)
+            with self.assertRaisesRegex(ValueError, 'invalid records'):
+                metadata(str(invalid), invalid.stat().st_mtime_ns)
+
+    def test_real_file_takes_priority_without_silent_fallback(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            real, mock = Path(temporary) / 'real.parquet', Path(temporary) / 'mock.parquet'
+            mock.touch()
+            with patch('app.app.REAL', real), patch('app.app.MOCK', mock):
+                self.assertEqual(data_source()[0], str(mock))
+                real.touch()
+                self.assertEqual(data_source()[0], str(real))
+
     def test_coverage_zero_and_incomplete_months(self):
         coverage = pd.DataFrame({
             'ano': [2025, 2025, 2025], 'mes': [1, 2, 3],
@@ -130,6 +153,22 @@ class CalendarDataTests(unittest.TestCase):
 
 
 class ApplicationTests(unittest.TestCase):
+    def test_example_regions_and_empty_selection(self):
+        with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
+            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
+            for name in ['Pantanal', 'Matopiba', 'Acre']:
+                app.selectbox(key='example_region').select(name).run()
+                app.button(key='apply_example').click().run()
+                self.assertFalse(app.exception)
+                self.assertIn(name, app.session_state['region_label'])
+                self.assertEqual(app.radio(key='region_mode').value, 'Lat-Lon + radius')
+            app.number_input(key='latitude').set_value(-30.)
+            app.number_input(key='longitude').set_value(-35.)
+            app.number_input(key='radius').set_value(5.)
+            app.button(key='update').click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any('No grid-cell centers' in w.value for w in app.warning))
+
     def test_methodology_missing_and_invalid_metrics(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

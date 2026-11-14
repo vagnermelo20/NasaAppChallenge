@@ -23,6 +23,11 @@ ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / 'data/processed/harmonized.parquet'
 MOCK = ROOT / 'data/processed/harmonized_mock.parquet'
 MONTHS = list(calendar.month_abbr)[1:]
+EXAMPLES = {
+    'Pantanal': (-18.0, -56.5, 100.0),
+    'Matopiba': (-10.0, -46.0, 100.0),
+    'Acre': (-9.0, -70.0, 100.0),
+}
 
 
 def data_source() -> tuple[str, int]:
@@ -33,6 +38,22 @@ def data_source() -> tuple[str, int]:
 @st.cache_data
 def metadata(path: str, modified_ns: int) -> pd.DataFrame:
     with duckdb.connect() as con:
+        columns = set(con.execute('DESCRIBE SELECT * FROM read_parquet(?)', [path]).df().column_name)
+        required = {'lat', 'lon', 'ano', 'mes', 'focos_harmonizados', 'fonte', 'dado_incompleto'}
+        missing = required - columns
+        if missing:
+            raise ValueError('Dataset does not match the agreed format. Missing columns: '
+                             + ', '.join(sorted(missing)))
+        invalid = con.execute(
+            'SELECT count(*) FROM read_parquet(?) WHERE '
+            'lat IS NULL OR lon IS NULL OR NOT isfinite(lat) OR NOT isfinite(lon) '
+            'OR ano IS NULL OR mes IS NULL OR mes NOT BETWEEN 1 AND 12 '
+            'OR focos_harmonizados IS NULL OR NOT isfinite(focos_harmonizados) '
+            'OR focos_harmonizados < 0 OR dado_incompleto IS NULL '
+            "OR fonte IS NULL OR fonte NOT IN ('modis_convertido', 'viirs')", [path]
+        ).fetchone()
+        if invalid and invalid[0]:
+            raise ValueError(f'Dataset contains {invalid[0]:,} invalid records. Ask the data team to verify the export.')
         return con.execute(
             'SELECT ano, mes, bool_or(dado_incompleto) AS incompleto, '
             "string_agg(DISTINCT fonte, '+') AS source "
@@ -105,6 +126,17 @@ def radius_polygon(lat: float, lon: float, radius_km: float) -> Polygon:
     return Polygon(points)
 
 
+def apply_example(name: str) -> None:
+    lat, lon, radius = EXAMPLES[name]
+    st.session_state['region_mode'] = 'Lat-Lon + radius'
+    st.session_state['latitude'] = lat
+    st.session_state['longitude'] = lon
+    st.session_state['radius'] = radius
+    st.session_state['regiao'] = radius_polygon(lat, lon, radius).wkt
+    st.session_state['region_label'] = f'{name} example · {radius:g} km radius'
+    st.session_state['draft_region'] = st.session_state['regiao']
+
+
 def drawn_region(payload: dict) -> str | None:
     """Union drawn polygons; an empty list means drawings were deleted."""
     drawings = payload.get('all_drawings')
@@ -160,7 +192,7 @@ def latest_comparison(series: pd.DataFrame) -> dict:
                 delta=delta, category=category)
 
 
-def calendar_figure(series: pd.DataFrame, anomaly: bool = False):
+def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bool = True):
     values = series.pivot(index='ano', columns='mes', values='focos')
     shown = (series.assign(anomaly=anomaly_values(series))
              .pivot(index='ano', columns='mes', values='anomaly')) if anomaly else values
@@ -179,12 +211,19 @@ def calendar_figure(series: pd.DataFrame, anomaly: bool = False):
         finite = shown.to_numpy()[np.isfinite(shown.to_numpy())]
         extent = max(1., float(np.abs(finite).max())) if len(finite) else 1.
         fig.update_coloraxes(cmin=-extent, cmax=extent, cmid=0)
-    fig.update_traces(text=labels.to_numpy(), texttemplate='%{text}',
+    fig.update_traces(text=labels.to_numpy(), texttemplate='%{text}' if show_values else '',
                       customdata=np.where(flags.to_numpy(), 'Incomplete / unavailable', 'Complete'),
                       hovertemplate=('Year: %{y}<br>Month: %{x}<br>'
                                      + ('Anomaly: %{z:+.1f}%' if anomaly else 'Hotspots: %{z:,.1f}')
                                      + '<br>%{customdata}<extra></extra>'),
                       hoverongaps=False)
+    if not show_values:
+        marked = series[series.incompleto & series.focos.notna()]
+        if not marked.empty:
+            fig.add_trace(go.Scatter(
+                x=[MONTHS[int(m) - 1] for m in marked.mes], y=marked.ano.astype(str),
+                mode='text', text=['*'] * len(marked), textfont=dict(color='white', size=18),
+                name='Incomplete data', hovertemplate='%{y} %{x}: incomplete data<extra></extra>'))
     if 2011 in values.index and 2012 in values.index:
         position = list(values.index).index(2011) + 0.5
         fig.add_hline(y=position, line_dash='dash', line_color='white', line_width=2)
@@ -397,6 +436,9 @@ def main() -> None:
     st.session_state.setdefault('region_label', 'Brazil · entire dataset')
     st.session_state.setdefault('map_revision', 0)
     st.session_state.setdefault('map_seed_wkt', None)
+    st.session_state.setdefault('latitude', -18.0)
+    st.session_state.setdefault('longitude', -56.5)
+    st.session_state.setdefault('radius', 50.0)
     with st.sidebar:
         st.header('Explore activity')
         mode = st.radio('Region selection', ['Draw on map', 'Lat-Lon + radius'], key='region_mode',
@@ -415,9 +457,9 @@ def main() -> None:
                 years = (first_year, last_year)
                 st.caption(f'Available year: {first_year}')
             if mode == 'Lat-Lon + radius':
-                lat = st.number_input('Latitude (°)', -34.0, 6.0, -18.0, key='latitude', persist_state='session')
-                lon = st.number_input('Longitude (°)', -74.0, -34.0, -56.5, key='longitude', persist_state='session')
-                radius = st.number_input('Radius (km)', 5.0, 500.0, 50.0, key='radius',
+                lat = st.number_input('Latitude (°)', -34.0, 6.0, key='latitude', persist_state='session')
+                lon = st.number_input('Longitude (°)', -74.0, -34.0, key='longitude', persist_state='session')
+                radius = st.number_input('Radius (km)', 5.0, 500.0, key='radius',
                                          help='Cells are included when their centers lie inside the circle.', persist_state='session')
             submitted = st.form_submit_button('Update', width='stretch', key='update')
         if submitted or 'applied_years' not in st.session_state:
@@ -432,6 +474,11 @@ def main() -> None:
             st.session_state['map_seed_wkt'] = None
             st.session_state['draft_region'] = None
             st.session_state.pop('last_map_event', None)
+        with st.expander('Try an example region'):
+            example = st.selectbox('Example region', list(EXAMPLES), key='example_region',
+                                   help='Illustrative 100 km circles, not administrative or biome boundaries.')
+            st.button('Apply example region', key='apply_example', width='stretch',
+                      on_click=apply_example, args=(example,))
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')
@@ -457,12 +504,24 @@ def main() -> None:
         with st.spinner('Loading monthly activity…'):
             series = serie_regiao(region_wkt, start, end)
         elapsed = perf_counter() - begin
+        cells = celulas()
+        if region_wkt:
+            selected_count = int(shapely.contains_xy(shapely.from_wkt(region_wkt),
+                                                     cells.lon + .125, cells.lat + .125).sum())
+        else:
+            selected_count = len(cells)
+        st.caption(f'{selected_count:,} grid-cell centers selected · Values are VIIRS-equivalent hotspots.')
         st.subheader('Burning activity calendar')
-        if series.focos.fillna(0).sum() == 0:
+        if selected_count == 0:
+            st.warning('No grid-cell centers from the dataset fall inside this selection. '
+                       'Try a larger radius or an example region. Zero totals here do not establish that no fire occurred.')
+        elif series.focos.fillna(0).sum() == 0:
             st.info('No detections in the selected cells and period. Try a larger region; small areas may contain no cell centers.')
         anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode', persist_state='session',
                             help='Compare each complete month with the same month in earlier complete years in the selected period.')
-        figure = calendar_figure(series, anomaly=anomaly)
+        show_values = st.toggle('Show values in cells', value=False, key='cell_values', persist_state='session',
+                                help='Keep off for a clearer calendar on small screens. Hover, tap a cell, or open Monthly values for exact numbers.')
+        figure = calendar_figure(series, anomaly=anomaly, show_values=show_values)
         figure.update_layout(title=f"{'MOCK · ' if is_mock else ''}{st.session_state['region_label']} · {start}–{end}")
         st.plotly_chart(figure, key='calendar', width='stretch',
                         alt='Monthly burning activity by year in the selected region, in VIIRS-equivalent hotspots.',

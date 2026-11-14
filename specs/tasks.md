@@ -90,6 +90,15 @@ Methodology carrega documentos/métricas quando disponíveis, com aviso provisó
 Validação: 11 testes passaram, quatro abas conferidas via API local, CSV/calendário coerentes.
 B10 permanece pendente da conferência visual no celular/Chrome; B11 depende da Pessoa A.
 
+Acabamento B10 implementado: calendário com números opcionais, marcadores de dados
+incompletos mantidos, atalhos para três regiões de exemplo (círculos de 100 km,
+não limites oficiais), contagem de centros selecionados e aviso para seleção vazia.
+Formato e valores básicos do arquivo de entrada são verificados; erro no arquivo real
+não causa retorno silencioso ao mock. Versões mínimas das dependências documentadas.
+Quatorze testes passaram; exemplos e exibição de números conferidos via API local.
+Roteiro de conferência visual, integração B11 e preparação de publicação: `app/VERIFY.md`.
+Ainda não há `harmonized.parquet`, documento final ou métricas entregues pela Pessoa A.
+
 ---
 
 ## Juntos (A + B) — Entrega · A4
