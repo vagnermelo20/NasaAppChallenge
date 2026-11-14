@@ -6,6 +6,13 @@ and table alternatives identified beside the map. At the user's request, this
 delivery was not tested or visually checked. Person A owns the remaining review,
 including Chrome, mobile, keyboard navigation, PNG export and empty selections.
 
+B19 handoff for Person A (implemented without running checks, as requested):
+open Calendar with years before 2012 and expand **Pre-2012 uncertainty · 2°
+monthly regions**. Review the 2° grid alignment, filtered MODIS sum, count-bin
+selection, factors from `metrics.json`, estimate × factors, completeness flags
+and uncertainty CSV. The bounds apply to each whole region-month; they are not
+summed across regions or months and do not supply an exact-day confidence interval.
+
 Run from the repository root:
 
 ```powershell

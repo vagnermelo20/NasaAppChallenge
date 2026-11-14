@@ -40,6 +40,11 @@ map are alternative backgrounds, with provider attribution. Esri background
 imagery is context and is not synchronized to the NASA observation date.
 
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
+- In Calendar, expand **Pre-2012 uncertainty · 2° monthly regions** to inspect
+  the delivered nominal 90% calibration band for a full 2° region-month.
+  Bounds use the science team's MODIS-count factors; they are not added across
+  regions/months or applied to exact-day searches. A dedicated CSV records the
+  region, estimate, factors and bounds. This delivery awaits Person A's review.
 - **Hotspot search:** query an inclusive UTC date interval (up to 92 days),
   filter by sensor/applied calendar area, inspect detections and export a CSV
   (date, time UTC, coordinates, satellite, FRP in MW and harmonized weight).

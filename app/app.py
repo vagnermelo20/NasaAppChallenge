@@ -786,6 +786,98 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
                    'dataset', 'region_wkt']]
 
 
+@st.cache_data
+def uncertainty_region_months(harmonized_path: str, harmonized_version: int,
+                              grid_path: str, grid_version: int, year: int, month: int) -> pd.DataFrame:
+    """Keep uncertainty at the 2° region/month scale used by the science team."""
+    with duckdb.connect() as con:
+        return con.execute(
+            'WITH h AS (SELECT floor(lat/2)*2 AS south, floor(lon/2)*2 AS west, '
+            'sum(focos_harmonizados) AS estimate, bool_or(dado_incompleto) AS incomplete '
+            'FROM read_parquet(?) WHERE ano=? AND mes=? GROUP BY 1,2), '
+            'm AS (SELECT floor(lat/2)*2 AS south, floor(lon/2)*2 AS west, sum(n) AS modis_count '
+            "FROM read_parquet(?) WHERE ano=? AND mes=? AND satellite IN ('Terra','Aqua') GROUP BY 1,2) "
+            'SELECT h.*, coalesce(m.modis_count,0) AS modis_count FROM h LEFT JOIN m USING(south,west) '
+            'WHERE h.estimate>0 ORDER BY h.estimate DESC',
+            [harmonized_path, year, month, grid_path, year, month]).df()
+
+
+def show_monthly_uncertainty(series: pd.DataFrame, region_wkt: str | None) -> None:
+    years = sorted(int(year) for year in series.ano.unique() if int(year) < 2012)
+    if not years:
+        return
+    with st.expander('Pre-2012 uncertainty · 2° monthly regions', key='uncertainty_panel', on_change='rerun') as panel:
+        if not panel.open:
+            return
+        st.caption('Explore the delivered nominal 90% calibration band for a complete 2° region and UTC month. '
+                   'It applies to converted MODIS before 2012; it is not a fire forecast or an exact-day interval.')
+        grid = ROOT / 'data/processed/grid_sat.parquet'
+        metrics = ROOT / 'reports/metrics.json'
+        if not REAL.exists() or not grid.exists() or not metrics.exists():
+            st.info('The real harmonized series, processed satellite grid and uncertainty metrics are required.')
+            return
+        try:
+            uncertainty = read_metrics(str(metrics), metrics.stat().st_mtime_ns).get(
+                'prova_harmonizacao', {}).get('faixa_incerteza', {})
+            factors = uncertainty.get('largura_por_focos_modis', [])
+            if len(factors) != 5:
+                raise ValueError('The five calibrated MODIS count bands have not been supplied.')
+            with st.container(horizontal=True):
+                year = st.selectbox('Uncertainty year · MODIS', years, index=len(years)-1, key='uncertainty_year')
+                month = st.selectbox('Uncertainty month · UTC', list(range(1, 13)),
+                                     index=8, format_func=lambda value: MONTHS[value-1], key='uncertainty_month')
+            regions = uncertainty_region_months(str(REAL), REAL.stat().st_mtime_ns,
+                                                str(grid), grid.stat().st_mtime_ns, year, month)
+            if region_wkt and not regions.empty:
+                blocks = shapely.box(regions.west.to_numpy(), regions.south.to_numpy(),
+                                     regions.west.to_numpy()+2, regions.south.to_numpy()+2)
+                regions = regions[shapely.intersects(blocks, shapely.from_wkt(region_wkt))]
+            if regions.empty:
+                st.info('No converted activity in the available 2° regions for this month and selection.')
+                return
+            regions = regions.reset_index(drop=True)
+            def region_name(index: int) -> str:
+                row = regions.iloc[index]
+                return f'{row.south:g}° to {row.south+2:g}° latitude · {row.west:g}° to {row.west+2:g}° longitude'
+            selected = st.selectbox('Full 2° analysis region', list(regions.index),
+                                    format_func=region_name, key='uncertainty_region')
+            row = regions.iloc[selected]
+            if bool(row.incomplete) or row.modis_count <= 0:
+                st.info('No uncertainty band is shown for an incomplete region-month or one without MODIS detections.')
+                return
+            category = int(np.searchsorted([20, 50, 150, 500], row.modis_count, side='left'))
+            lower_factor = float(factors[category]['fator_baixo'])
+            upper_factor = float(factors[category]['fator_alto'])
+            if not (math.isfinite(lower_factor) and math.isfinite(upper_factor) and 0 <= lower_factor <= upper_factor):
+                raise ValueError('Invalid uncertainty factors in the delivered metrics.')
+            lower, upper = float(row.estimate) * lower_factor, float(row.estimate) * upper_factor
+            with st.container(horizontal=True):
+                st.metric('Converted VIIRS-equivalent activity', f'{row.estimate:,.2f}')
+                st.metric('Nominal 90% lower bound', f'{lower:,.2f}')
+                st.metric('Nominal 90% upper bound', f'{upper:,.2f}')
+            st.caption(f'{row.modis_count:,.0f} filtered MODIS detections · factors {lower_factor:g}–{upper_factor:g}. '
+                       'The factor band is selected using raw MODIS counts, not the converted estimate.')
+            coverage = uncertainty.get('cobertura_90_nominal')
+            if isinstance(coverage, (int, float)):
+                st.caption(f'Empirical coverage reported by the science team: {coverage*100:.1f}% '
+                           'across the calibration cases; this is not a guarantee for an individual region-month.')
+            st.info('Bounds describe one full 2° region-month. Regions intersecting your applied area are listed, '
+                    'but each region is kept whole. Do not add these bounds across regions or months, '
+                    'or apply them to the daily search. Satellite detection uncertainty is not burned-area uncertainty.')
+            export = pd.DataFrame([{'year': year, 'month': month, 'south': row.south, 'north': row.south+2,
+                                    'west': row.west, 'east': row.west+2, 'modis_detections': row.modis_count,
+                                    'viirs_equivalent_estimate': row.estimate, 'lower_90_nominal': lower,
+                                    'upper_90_nominal': upper, 'lower_factor': lower_factor,
+                                    'upper_factor': upper_factor, 'calibration_scale': '2 degree region / UTC month',
+                                    'metrics_source': 'reports/metrics.json', 'dataset': 'harmonized'}])
+            st.dataframe(export, hide_index=True, alt='Monthly converted activity and calibrated uncertainty bounds for the selected full 2 degree region.')
+            st.download_button('Download monthly uncertainty CSV', export.to_csv(index=False).encode('utf-8-sig'),
+                               f'uncertainty_2deg_{year}-{month:02d}_{row.south:g}_{row.west:g}.csv',
+                               'text/csv', key='uncertainty_csv', on_click='ignore')
+        except (OSError, duckdb.Error, ValueError, KeyError, TypeError) as error:
+            st.warning(f'The monthly uncertainty explorer is unavailable: {error}')
+
+
 def show_comparison(series: pd.DataFrame, prefix: str) -> None:
     summary = latest_comparison(series)
     st.subheader('Latest complete month vs history')
@@ -1104,6 +1196,8 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
     if anomaly:
         st.caption('Blank cells have incomplete data, no earlier baseline, or a zero median. The color scale is centered on zero.')
     show_comparison(series, 'MOCK · ' if is_mock else '')
+    if not is_mock:
+        show_monthly_uncertainty(series, region_wkt)
     complete = series[~series.incompleto & series.focos.notna()]
     seasonal = complete.groupby('mes').focos.median()
     annual = series.groupby('ano').focos.sum(min_count=1)
