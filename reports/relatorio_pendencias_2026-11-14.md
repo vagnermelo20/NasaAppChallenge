@@ -118,3 +118,18 @@ O verificador de artefatos retornou **`ready_for_review`**, sem arquivos faltant
 - [Roteiro de verificação visual](../app/VERIFY.md)
 
 As verificações desta revisão foram somente de leitura sobre as bases. Não foram recalculados os modelos científicos nem alterados os arquivos entregues pela pessoa A.
+
+---
+## Revisão da Pessoa A (14/11/2026, depois deste relatório)
+| Item do relatório | Situação |
+|---|---|
+| A14 — validação com o método final | ✅ notebook 05 refeito: erro anual Brasil 1,6%, bloco 8,3%, célula 25,3% |
+| A2 — pico por célula | ❌ continua não atingido (73,7%; ±1 mês 90,4%). Critério mantido; resultado e regra de uso documentados (spec, metodologia) |
+| R5b — 2026 | ✅ anexado (SP até 31/07, NRT depois), recortado às células do Brasil; sem dados do S-NPP desde 02/11/2026 |
+| Sinal da faixa de incerteza | ✅ corrigido: faixa recalibrada sem filtrar pelo VIIRS; ≤ 20 focos MODIS: −70% a +249% (cobre 89,9%) |
+| Especificação da máscara (R2) | ✅ spec alinhada (0,02°, tipos 1/2/3, ≥ 2 anos) |
+| Cabeçalho do `metrics.json` | ✅ descreve o método final; nota da versão 1 removida |
+| Fire map na grade antiga (2.1) | ➡️ B16 (o `grid_sat` agora inclui 2026) |
+| Textos do app e Methodology (2.2, 2.3) | ➡️ B17 |
+| Publicação, vídeo e submissão | ➡️ A + B (J1–J4) |
+

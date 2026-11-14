@@ -49,11 +49,20 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **A12** `notebooks/07_prova_harmonizacao.ipynb`: "MODIS diz X, VIIRS diz Y" por região × mês; figura `prova_antes_depois.png`; referência NOAA-20 × S-NPP (`data/raw/noaa20/`, fora do git)
 - **Resultado:** região 2° × mês: diferença mediana 14% (MODIS cru 74%), 66% dentro de ±20%, correlação 0,992; dois VIIRS iguais: 8% / 85%
 
-- [x] **A13** Debate de métodos (3 agentes: Físico, Estatístico, Avaliador) para subir a concordância; testados com regras fixadas antes (`notebooks/exp_debate_metodos.py`): covariáveis do MODIS rejeitadas; faixa de incerteza calibrada adotada (cobre 89,9%); concordância anual 92% dentro de ±20%; 90–100% por região × mês é fisicamente inalcançável (teto entre dois VIIRS: 85%)
-- [ ] **A14** Rodar de novo o notebook 05 com o método final (hoje é a versão 1; o `metrics.json` tem uma nota sobre isso)
+- [x] **A13** Debate de métodos (3 agentes: Físico, Estatístico, Avaliador) para subir a concordância; testados com regras fixadas antes (`notebooks/exp_debate_metodos.py`): covariáveis do MODIS rejeitadas; faixa de incerteza calibrada adotada (cobre 89,9%); concordância anual 92% dentro de ±20%; na nossa comparação, dois VIIRS iguais concordam 85% por mês e o limite só de contagem seria 93,6%; não esperamos 90–100% mensal ponto a ponto com estes dados (o número mensal honesto é 66%; o anual, 92%)
+- [x] **A15** Faixa de incerteza recalibrada sem filtrar pelo VIIRS (cobre 89,9%; ≤ 20 focos MODIS: −70% a +249%); docs e recado ao B corrigidos (o sinal −6% estava errado); spec R2/R4/R5b alinhadas ao método entregue
+- [x] **A14** Notebook 05 refeito com o método final (erro anual: Brasil 1,6%, bloco 8,3%, célula 25,3%; fora da calibração 6,0%); preserva a seção do notebook 07 no `metrics.json`
+
+### Fase 3c — Fechamento após a revisão independente (14/11/2026)
+- [x] **A16** 2026 recortado às células do Brasil (conferir as 21 células novas) e anexado ao `grid_sat`
+- [x] **A17** Textos honestos: teto (85% / 93,6%), deriva como hipótese com evidência, "S-NPP sem dados desde 02/11/2026", 92% = escala anual; nb07, A13, metodologia e README
+- [x] **A18** Declaração do A2 não atingido (spec, metodologia, handoff) e regra de confiabilidade do mês de pico
+- [x] **A19** Base de focos por ano com `peso_harmonizado` (R12) + teste da soma = harmonized — `notebooks/08_base_focos.ipynb`, `data/processed/focos/` (22,5 mi focos, 26 arquivos, 184 MB, maior 12,9 MB; soma dos pesos = harmonized com diferença máx. 1e-10)
+- [x] **A20** Robustez no nb07: estratos pela estimativa convertida; grade de 2° deslocada 1°; extrapolação para trás (2017–21 → 2012–14) ao lado do LOYO dos mesmos anos
+- [x] **A21** Rodar de novo nb06/nb07, atualizar números na metodologia e no handoff; marcar o relatório de pendências do B como revisado
 
 ### Fase 3b — Ano corrente · R5b
-- [ ] **A9** *(código pronto em `notebooks/06_dados_2026.ipynb`; falta a MAP_KEY no `.env` para baixar)* (1,5 h) Pedir MAP_KEY; baixar 2026 via API do FIRMS (VIIRS S-NPP NRT); aplicar a mesma máscara e agregar; anexar ao `harmonized.parquet` com `dado_incompleto=True` no mês corrente
+- [x] **A9** 2026 baixado e anexado (notebook 06): SP até 31/07, NRT depois; 39.510 linhas; NRT com todos os dias conta como completo. **O S-NPP parou em 02/11/2026** (confirmado no data_availability do FIRMS); nov/2026 incompleto. Próximo passo possível: continuar com NOAA-20/21
 
 ### Apoio à entrega
 - [x] **A10** (1 h) Texto da página Metodologia em inglês → `docs/metodologia.md` (método, métricas, limitações: deriva orbital, versão do `type`, foco ≠ incêndio)
@@ -78,6 +87,12 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - [x] **B14** Revisão visual solicitada: atlas escuro/satélite, símbolos proporcionais por centro de célula, grade alternativa, legenda horizontal, contorno regional e expansão do mapa · R7/R8
+- [ ] **B15** Destaque e anomalia usando o **último mês completo** (out/2026), não nov/2026 (incompleto) · R9
+- [ ] **B16** Fire map lendo `grid_sat.parquet` (mesma preparação científica; já tem 2026), somando `n` por satélite × mês
+- [ ] **B17** About, Methodology e README: fonte real carregada, figuras `prova_antes_depois.png` / `prova_pantanal.png`, A2 não atingido na célula + regra "mês de pico confiável em áreas ≥ ~2° ou com centenas de focos"; métricas do método final em destaque · R11
+- [ ] **B18** Busca por datas exatas (R12): seletor de intervalo (até 92 dias, até 200 mil focos) lendo só os anos pedidos de `data/processed/focos/`; tabela + CSV dos focos (data, hora UTC, satélite, lat/lon, FRP) rotulada "observação por sensor"; comparação do mesmo intervalo entre anos pela soma de `peso_harmonizado` ("aproximado" antes de 2012)
+- [ ] **B19** (opcional) Faixa de incerteza de 90% antes de 2012 (`metrics.json → prova_harmonizacao → faixa_incerteza`)
+- [ ] **B20** Conferência manual de `app/VERIFY.md` (Chrome, celular, PNG, região vazia)
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
 
 Integração B11: Fire map abre na série real `harmonized.parquet` (2001–2025),

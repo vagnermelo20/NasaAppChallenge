@@ -6,3 +6,5 @@ __pycache__/
 .claude/settings.local.json
 .env
 data/processed/harmonized_mock.parquet
+data/processed/harmonized_2026.parquet
+data/processed/grid_sat_2026.parquet

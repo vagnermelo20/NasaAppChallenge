@@ -11,7 +11,7 @@ All data come from **NASA FIRMS** (Fire Information for Resource Management Syst
 | Satellites | Terra (from Nov 2000) and Aqua (from Jul 2002) | Suomi NPP only (from Jan 2012) |
 | Product | MCD14ML, Collection 6.1 | VNP14IMG, 375 m |
 | Pixel at nadir | 1 km | 375 m |
-| Years used | 2001–2025 | 2012–2025 (2026 from the FIRMS API, provisional) |
+| Years used | 2001–2025 | 2012–2026 (2026 from the FIRMS API: standard data to 31 Jul, near-real-time after; provisional; clipped to the 0.25° cells observed in Brazil in 2001–2025) |
 
 We use only S-NPP for VIIRS, so the same fire is not counted twice by NOAA-20/21.
 
@@ -61,9 +61,9 @@ Over the whole decade the regional bias is about 0% (Pantanal, Matopiba, Acre an
 | 2° (~220 km) | 74% | **14%** | **66%** | **0.992** |
 | 5° (~550 km) | 74% | 11% | 72% | 0.996 |
 
-National monthly correlation is 0.998 and the national mean annual error 1.6% (leave-one-year-out, final method). Outside the calibration period (2022–2025) the national annual error is about 6%, with converted MODIS above VIIRS in 2023–2025 because of the MODIS orbital drift.
+National monthly correlation is 0.998 and the national mean annual error 1.6% (leave-one-year-out, final method). Outside the calibration period (2022–2025) the national annual error is about 6%, with converted MODIS above VIIRS in 2023–2025. Our main hypothesis is the MODIS orbital drift: Aqua's mean local overpass time moved from 13.65 h (2012–2021) to 14.90 h in 2025, so MODIS now observes fires at a different hour than in the calibration years.
 
-**Natural reference.** Two identical VIIRS instruments (S-NPP and NOAA-20, ~50 min apart) also disagree: on the same 2° regions (2018–2021) their median monthly difference is 8% and 85% of region-months fall within ±20%. Converted MODIS reaches a median difference of 13% and 66% within ±20% over the same period — close to the level at which even two identical sensors differ.
+**Natural reference.** Two identical VIIRS instruments (S-NPP and NOAA-20, ~50 min apart) also disagree: on the same 2° regions (2018–2021) their median monthly difference is 8% and 85% of region-months fall within ±20%. Converted MODIS reaches a median difference of 13% and 66% within ±20% over the same period: clearly better than raw MODIS (74% median difference), but still below the agreement between two identical VIIRS instruments.
 
 **Agreement by time scale** (2° regions, final method, leave-one-year-out 2012–2021):
 
@@ -76,11 +76,25 @@ National monthly correlation is 0.998 and the national mean annual error 1.6% (l
 
 In months with heavy fire, converted MODIS agrees with VIIRS as well as the two identical VIIRS instruments agree with each other.
 
-**Calibrated uncertainty band.** Each converted value before 2012 comes with a 90% band built from the errors of the other years. The band's real coverage is **89.9%** (80% band: 79.7%). It is wide when MODIS saw little fire (≤ 20 hotspots in the month: −6% to +229%) and narrow when it saw a lot (> 500: −19% to +21%).
+**Robustness** (published next to the main result, as requested by our independent review):
 
-**What we tried and rejected.** Correcting each month's factor with MODIS-only covariates (FRP tail, clustering, Terra/Aqua anomaly, night fraction) did not help (66% → 65%, no better than shuffled covariates). A simulation shows that pure counting noise would allow ~94% within ±20%, so the remaining error comes from real year-to-year changes in how fires look to each sensor, which MODIS alone cannot predict. **Point-by-point agreement of 90–100% per region and month is not physically achievable**; even two identical VIIRS instruments reach 85%.
+| Test (2° region × month, within ±20%) | Result |
+|---|---|
+| Main result (VIIRS ≥ 100) | 66% |
+| Strata by the converted estimate instead of VIIRS: 100–300 / 300–1,000 / ≥ 1,000 | 51% / 70% / 85% |
+| 2° grid shifted by 1° (regions not aligned with the calibration grid) | 64% |
+| 2012–2014, leave-one-year-out (reference) | 64% |
+| 2012–2014, calibrated only on 2017–2021 (backward extrapolation, as from 2012 to 2001) | 61% |
 
-**Final test 2022–2025** (outside calibration): 53% of region-months within ±20% (median difference 18%), degraded by MODIS orbital drift. The app uses real VIIRS for these years.
+Backward extrapolation changes the national annual total by only +0.3% to +2.3% (2012–2014).
+
+**Calibrated uncertainty band.** Each converted value before 2012 comes with a 90% band built from the errors of the other years. Because no VIIRS exists before 2012, the band depends only on what MODIS shows: it is calibrated on every 2° region-month with at least one MODIS hotspot, without filtering by VIIRS. Its real coverage is **89.9%** (80% band: 79.8%). Read it as *VIIRS-equivalent value = converted × (1 + lower) … converted × (1 + upper)*: wide when MODIS saw little fire (≤ 20 hotspots in the month: −70% to +249%) and narrow when it saw a lot (> 500: −19% to +21%).
+
+**What we tried and rejected.** Correcting each month's factor with MODIS-only covariates (FRP tail, clustering, Terra/Aqua anomaly, night fraction) did not help (66% → 65%, no better than shuffled covariates). A simulation shows that counting noise alone would still allow ~94% within ±20%, so most of the remaining error comes from year-to-year changes in how fires appear to each sensor, which MODIS alone could not predict in our tests. In our comparison, two identical VIIRS instruments agree within ±20% in 85% of region-months; we therefore do not expect point-by-point monthly agreement of 90–100% with these data, and we report the monthly figure (66%) next to the annual one (92%).
+
+**Final test 2022–2025** (outside calibration): 53% of region-months within ±20% (median difference 18%), most likely degraded by the MODIS orbital drift (hypothesis, see above). The app uses real VIIRS for these years.
+
+**Acceptance criterion A2 (not met at the 0.25° cell).** Our specification required, per 0.25° cell, monthly correlation ≥ 0.85 and the correct peak month in ≥ 80% of cells with fire. With the final method (leave-one-year-out): correlation **0.959** (met) and peak month **73.7%** (**not met**; within ±1 month 90.4%). At coarser scales the peak month is right in 90% of years nationally and 79.9% of 5° blocks, and in 83.5% of cells with ≥ 200 hotspots per year. We kept the criterion as written and report the result. **Practical rule:** the peak month of the calendar is reliable for areas of about 2° or larger, or with hundreds of hotspots per year; for small areas use the ±1 month reading.
 
 ## Limitations
 
@@ -88,7 +102,7 @@ In months with heavy fire, converted MODIS agrees with VIIRS as well as the two 
 - **MODIS orbital drift.** Terra and Aqua are drifting at the end of their missions. Mean local overpass time was stable until 2021 (Aqua 13.65 h, Terra about 10.45 h) and in 2025 reached **14.90 h for Aqua and 9.26 h for Terra**. This is why k is calibrated only on 2012–2021; MODIS-converted values after 2021 are less reliable (but the app uses real VIIRS for those years).
 - **MODIS `type` rule changed in 2018.** MCD14ML version 3 "significantly improved typing" of hotspots: the share of `type = 2` (static source) went from 0.56% in 2017 to 2.70% in 2018. Filtering by `type` would create an artificial step, so we use the single static-source mask.
 - **Incomplete months are flagged.** A month is marked incomplete when the source used for it has at least one day with no record anywhere in Brazil (for example January 2012, when VIIRS data start on the 20th). A missing day means missing observation, not zero fire.
-- **The current month is provisional.** 2026 data come from the FIRMS API; the most recent weeks are near-real-time (NRT) data and are always flagged as incomplete.
+- **The current month is provisional.** 2026 data come from the FIRMS API; from August on they are near-real-time (NRT) data; a month is flagged incomplete only if a day is missing or it is the current month. **No Suomi NPP data since 2 November 2026** (FIRMS data-availability service lists VIIRS_SNPP_NRT up to that date; the cause is not known to us), so 3–14 November 2026 has no S-NPP observations. NOAA-20 and NOAA-21 carry the same VIIRS instrument and continue the record.
 - **Regional factors.** k is calibrated per 2° region and month over ten years; in a single cell or a single year (fire type changes from year to year) the error can be larger than in regional or national totals. Use regions of ~1° or larger for comparisons before 2012.
 - **Brazil only.** The factors were calibrated for Brazilian fire regimes and should not be applied elsewhere without recalibration.
 

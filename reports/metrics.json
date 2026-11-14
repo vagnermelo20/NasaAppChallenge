@@ -1,6 +1,6 @@
 {
   "descricao": {
-    "metodo": "k_sat = soma(VIIRS S-NPP)/soma(MODIS sat) por satelite (Terra, Aqua) x bloco 5 graus x mes do ano; fallback k nacional do mes se soma MODIS < 30; modis_convertido = (Terra*k_Terra + Aqua*k_Aqua)/2",
+    "metodo": "metodo final: k_5 = soma(VIIRS)/soma(MODIS sat) por satelite x bloco 5 graus x mes (fallback nacional se < 30); k_local = (soma VIIRS_2graus + 100*k_5)/(soma MODIS_2graus + 100); modis_convertido = (n_Terra + n_Aqua)/(1/k_Terra + 1/k_Aqua)",
     "loyo": "para cada ano Y em 2012-2021, k calculado com os outros 9 anos e aplicado a Y",
     "correlacao_mensal": "Pearson entre previsto e real por unidade x mes (celula: pares com foco em ao menos um sensor)",
     "erro_rel_anual_medio_abs": "media de |previsto/real - 1| por unidade x ano (bloco/celula: so unidades com >= 50 focos VIIRS no ano)",
@@ -10,18 +10,18 @@
   "loyo_2012_2021": {
     "nacional": {
       "correlacao_mensal": 0.998,
-      "erro_rel_anual_medio_abs": 0.02,
+      "erro_rel_anual_medio_abs": 0.016,
       "erro_rel_anual_por_ano": {
-        "2012": 0.004,
-        "2013": -0.019,
-        "2014": -0.012,
-        "2015": 0.042,
-        "2016": -0.0,
-        "2017": 0.04,
-        "2018": -0.023,
-        "2019": 0.018,
-        "2020": -0.033,
-        "2021": -0.006
+        "2012": 0.0,
+        "2013": 0.009,
+        "2014": 0.011,
+        "2015": 0.004,
+        "2016": 0.002,
+        "2017": 0.031,
+        "2018": -0.013,
+        "2019": 0.016,
+        "2020": -0.054,
+        "2021": -0.02
       },
       "acerto_mes_pico": 0.9,
       "acerto_mes_pico_mais_menos_1": 1.0,
@@ -29,42 +29,42 @@
     },
     "bloco": {
       "correlacao_mensal": 0.996,
-      "correlacao_mensal_log1p": 0.974,
+      "correlacao_mensal_log1p": 0.975,
       "n_bloco_mes": 5278,
-      "erro_rel_anual_medio_abs": 0.102,
-      "erro_rel_anual_mediana_abs": 0.058,
-      "vies_total": 0.004,
-      "acerto_mes_pico": 0.804,
-      "acerto_mes_pico_mais_menos_1": 0.957,
+      "erro_rel_anual_medio_abs": 0.083,
+      "erro_rel_anual_mediana_abs": 0.052,
+      "vies_total": -0.002,
+      "acerto_mes_pico": 0.799,
+      "acerto_mes_pico_mais_menos_1": 0.962,
       "n_unidades_ano": 443
     },
     "celula": {
-      "correlacao_mensal": 0.951,
-      "correlacao_mensal_log1p": 0.757,
+      "correlacao_mensal": 0.959,
+      "correlacao_mensal_log1p": 0.762,
       "n_celula_mes": 617962,
-      "erro_rel_anual_medio_abs": 0.29,
-      "erro_rel_anual_mediana_abs": 0.223,
-      "vies_total": 0.001,
-      "acerto_mes_pico": 0.727,
-      "acerto_mes_pico_mais_menos_1": 0.898,
+      "erro_rel_anual_medio_abs": 0.253,
+      "erro_rel_anual_mediana_abs": 0.196,
+      "vies_total": -0.005,
+      "acerto_mes_pico": 0.737,
+      "acerto_mes_pico_mais_menos_1": 0.904,
       "n_unidades_ano": 49106
     }
   },
   "dentro_amostra_2012_2021": {
     "nacional": {
       "correlacao_mensal": 0.999,
-      "erro_rel_anual_medio_abs": 0.017,
+      "erro_rel_anual_medio_abs": 0.013,
       "erro_rel_anual_por_ano": {
         "2012": 0.001,
-        "2013": -0.021,
-        "2014": -0.014,
-        "2015": 0.025,
-        "2016": -0.002,
-        "2017": 0.031,
-        "2018": -0.024,
-        "2019": 0.011,
-        "2020": -0.03,
-        "2021": -0.01
+        "2013": 0.006,
+        "2014": 0.008,
+        "2015": 0.004,
+        "2016": 0.002,
+        "2017": 0.025,
+        "2018": -0.013,
+        "2019": 0.009,
+        "2020": -0.044,
+        "2021": -0.019
       },
       "acerto_mes_pico": 0.9,
       "acerto_mes_pico_mais_menos_1": 1.0,
@@ -74,59 +74,59 @@
       "correlacao_mensal": 0.997,
       "correlacao_mensal_log1p": 0.976,
       "n_bloco_mes": 5278,
-      "erro_rel_anual_medio_abs": 0.093,
-      "erro_rel_anual_mediana_abs": 0.052,
-      "vies_total": -0.001,
-      "acerto_mes_pico": 0.822,
-      "acerto_mes_pico_mais_menos_1": 0.962,
+      "erro_rel_anual_medio_abs": 0.078,
+      "erro_rel_anual_mediana_abs": 0.045,
+      "vies_total": -0.002,
+      "acerto_mes_pico": 0.828,
+      "acerto_mes_pico_mais_menos_1": 0.975,
       "n_unidades_ano": 443
     },
     "celula": {
-      "correlacao_mensal": 0.953,
-      "correlacao_mensal_log1p": 0.758,
+      "correlacao_mensal": 0.962,
+      "correlacao_mensal_log1p": 0.764,
       "n_celula_mes": 617962,
-      "erro_rel_anual_medio_abs": 0.287,
-      "erro_rel_anual_mediana_abs": 0.221,
-      "vies_total": -0.004,
-      "acerto_mes_pico": 0.729,
-      "acerto_mes_pico_mais_menos_1": 0.899,
+      "erro_rel_anual_medio_abs": 0.249,
+      "erro_rel_anual_mediana_abs": 0.193,
+      "vies_total": -0.005,
+      "acerto_mes_pico": 0.74,
+      "acerto_mes_pico_mais_menos_1": 0.906,
       "n_unidades_ano": 49106
     }
   },
   "fora_calibracao_2022_2025": {
     "nacional": {
-      "correlacao_mensal": 0.991,
-      "erro_rel_anual_medio_abs": 0.071,
+      "correlacao_mensal": 0.992,
+      "erro_rel_anual_medio_abs": 0.06,
       "erro_rel_anual_por_ano": {
-        "2022": 0.007,
-        "2023": 0.091,
-        "2024": 0.086,
-        "2025": 0.1
+        "2022": 0.006,
+        "2023": 0.05,
+        "2024": 0.059,
+        "2025": 0.125
       },
       "acerto_mes_pico": 0.75,
       "acerto_mes_pico_mais_menos_1": 1.0,
       "n_anos": 4
     },
     "bloco": {
-      "correlacao_mensal": 0.986,
+      "correlacao_mensal": 0.988,
       "correlacao_mensal_log1p": 0.972,
       "n_bloco_mes": 2108,
-      "erro_rel_anual_medio_abs": 0.161,
-      "erro_rel_anual_mediana_abs": 0.112,
-      "vies_total": 0.069,
-      "acerto_mes_pico": 0.819,
-      "acerto_mes_pico_mais_menos_1": 0.938,
+      "erro_rel_anual_medio_abs": 0.141,
+      "erro_rel_anual_mediana_abs": 0.083,
+      "vies_total": 0.054,
+      "acerto_mes_pico": 0.814,
+      "acerto_mes_pico_mais_menos_1": 0.955,
       "n_unidades_ano": 177
     },
     "celula": {
-      "correlacao_mensal": 0.948,
-      "correlacao_mensal_log1p": 0.745,
+      "correlacao_mensal": 0.957,
+      "correlacao_mensal_log1p": 0.748,
       "n_celula_mes": 243572,
-      "erro_rel_anual_medio_abs": 0.345,
-      "erro_rel_anual_mediana_abs": 0.249,
-      "vies_total": 0.064,
-      "acerto_mes_pico": 0.709,
-      "acerto_mes_pico_mais_menos_1": 0.893,
+      "erro_rel_anual_medio_abs": 0.316,
+      "erro_rel_anual_mediana_abs": 0.222,
+      "vies_total": 0.046,
+      "acerto_mes_pico": 0.719,
+      "acerto_mes_pico_mais_menos_1": 0.897,
       "n_unidades_ano": 18346
     }
   },
@@ -135,39 +135,38 @@
     "escala_oficial": "celula",
     "criterio": "correlacao mensal >= 0.85 e acerto mes de pico >= 0.80",
     "escalas_que_passam": [
-      "nacional",
-      "bloco"
+      "nacional"
     ],
-    "detalhe": "Escala oficial (célula 0,25°, LOYO 2012–2021): correlação mensal 0.951 (≥ 0,85; log1p 0.757) e mês de pico 72.7% (< 80%; ±1 mês 89.8%) em 49,106 célula·ano com ≥ 50 focos VIIRS. Escalas que passam nos dois critérios: nacional, bloco."
+    "detalhe": "Escala oficial (célula 0,25°, LOYO 2012–2021): correlação mensal 0.959 (≥ 0,85; log1p 0.762) e mês de pico 73.7% (< 80%; ±1 mês 90.4%) em 49,106 célula·ano com ≥ 50 focos VIIRS. Escalas que passam nos dois critérios: nacional."
   },
   "sensibilidade_pico_celula_loyo": {
     "10": {
-      "acerto_mes_pico": 0.631,
-      "acerto_mes_pico_mais_menos_1": 0.822,
+      "acerto_mes_pico": 0.641,
+      "acerto_mes_pico_mais_menos_1": 0.828,
       "n_unidades_ano": 79578
     },
     "50": {
-      "acerto_mes_pico": 0.727,
-      "acerto_mes_pico_mais_menos_1": 0.898,
+      "acerto_mes_pico": 0.737,
+      "acerto_mes_pico_mais_menos_1": 0.904,
       "n_unidades_ano": 49106
     },
     "100": {
-      "acerto_mes_pico": 0.779,
-      "acerto_mes_pico_mais_menos_1": 0.929,
+      "acerto_mes_pico": 0.787,
+      "acerto_mes_pico_mais_menos_1": 0.934,
       "n_unidades_ano": 32123
     },
     "200": {
-      "acerto_mes_pico": 0.83,
-      "acerto_mes_pico_mais_menos_1": 0.954,
+      "acerto_mes_pico": 0.835,
+      "acerto_mes_pico_mais_menos_1": 0.958,
       "n_unidades_ano": 17285
     },
     "500": {
       "acerto_mes_pico": 0.887,
-      "acerto_mes_pico_mais_menos_1": 0.979,
+      "acerto_mes_pico_mais_menos_1": 0.98,
       "n_unidades_ano": 4794
     },
     "1000": {
-      "acerto_mes_pico": 0.92,
+      "acerto_mes_pico": 0.927,
       "acerto_mes_pico_mais_menos_1": 0.991,
       "n_unidades_ano": 1069
     }
@@ -176,67 +175,67 @@
     "loyo_2012_2021": {
       "nacional": {
         "correlacao_mensal": 0.998,
-        "erro_rel_anual_medio_abs": 0.028,
+        "erro_rel_anual_medio_abs": 0.017,
         "erro_rel_anual_por_ano": {
-          "2012": 0.004,
-          "2013": -0.048,
-          "2014": -0.03,
-          "2015": 0.051,
-          "2016": -0.003,
-          "2017": 0.049,
-          "2018": -0.048,
-          "2019": 0.019,
-          "2020": -0.017,
-          "2021": 0.011
+          "2012": -0.006,
+          "2013": -0.02,
+          "2014": -0.01,
+          "2015": 0.012,
+          "2016": 0.004,
+          "2017": 0.032,
+          "2018": -0.034,
+          "2019": 0.014,
+          "2020": -0.03,
+          "2021": 0.009
         },
         "acerto_mes_pico": 0.9,
         "acerto_mes_pico_mais_menos_1": 1.0,
         "n_anos": 10
       },
       "bloco": {
-        "correlacao_mensal": 0.995,
-        "correlacao_mensal_log1p": 0.975,
+        "correlacao_mensal": 0.997,
+        "correlacao_mensal_log1p": 0.976,
         "n_bloco_mes": 5278,
-        "erro_rel_anual_medio_abs": 0.117,
-        "erro_rel_anual_mediana_abs": 0.067,
-        "vies_total": 0.004,
-        "acerto_mes_pico": 0.792,
-        "acerto_mes_pico_mais_menos_1": 0.95,
+        "erro_rel_anual_medio_abs": 0.09,
+        "erro_rel_anual_mediana_abs": 0.053,
+        "vies_total": -0.001,
+        "acerto_mes_pico": 0.799,
+        "acerto_mes_pico_mais_menos_1": 0.962,
         "n_unidades_ano": 443
       },
       "celula": {
-        "correlacao_mensal": 0.94,
-        "correlacao_mensal_log1p": 0.76,
+        "correlacao_mensal": 0.956,
+        "correlacao_mensal_log1p": 0.771,
         "n_celula_mes": 617962,
-        "erro_rel_anual_medio_abs": 0.324,
-        "erro_rel_anual_mediana_abs": 0.255,
-        "vies_total": 0.004,
-        "acerto_mes_pico": 0.714,
-        "acerto_mes_pico_mais_menos_1": 0.891,
+        "erro_rel_anual_medio_abs": 0.262,
+        "erro_rel_anual_mediana_abs": 0.205,
+        "vies_total": -0.001,
+        "acerto_mes_pico": 0.733,
+        "acerto_mes_pico_mais_menos_1": 0.902,
         "n_unidades_ano": 49106
       }
     },
     "diferenca_vs_base": {
       "nacional": {
-        "correlacao_mensal": -0.001,
-        "erro_rel_anual_medio_abs": 0.008,
+        "correlacao_mensal": 0.0,
+        "erro_rel_anual_medio_abs": 0.001,
         "acerto_mes_pico": 0.0
       },
       "bloco": {
-        "correlacao_mensal": -0.001,
-        "erro_rel_anual_medio_abs": 0.015,
-        "acerto_mes_pico": -0.011
+        "correlacao_mensal": 0.0,
+        "erro_rel_anual_medio_abs": 0.007,
+        "acerto_mes_pico": 0.0
       },
       "celula": {
-        "correlacao_mensal": -0.011,
-        "erro_rel_anual_medio_abs": 0.033,
-        "acerto_mes_pico": -0.013
+        "correlacao_mensal": -0.003,
+        "erro_rel_anual_medio_abs": 0.009,
+        "acerto_mes_pico": -0.004
       }
     },
     "melhora": false,
     "recomendacao": "manter metodo base"
   },
-  "gerado_em": "2026-11-14T16:34:21",
+  "gerado_em": "2026-11-14T18:56:12",
   "prova_harmonizacao": {
     "descricao": "Mesma região e mesmo mês: MODIS convertido (fator calculado sem o ano testado) × VIIRS real, 2012–2021, região×mês com VIIRS >= 100 focos.",
     "por_tamanho_regiao": [
@@ -361,41 +360,89 @@
         "diferença mediana": "8.5%"
       }
     ],
+    "robustez": [
+      {
+        "teste": "estrato pela estimativa convertida 100–300",
+        "casos": 4189,
+        "dentro de ±20%": "51%",
+        "diferença mediana": "19.5%"
+      },
+      {
+        "teste": "estrato pela estimativa convertida 300–1000",
+        "casos": 3393,
+        "dentro de ±20%": "70%",
+        "diferença mediana": "13.0%"
+      },
+      {
+        "teste": "estrato pela estimativa convertida 1000–∞",
+        "casos": 2891,
+        "dentro de ±20%": "85%",
+        "diferença mediana": "8.6%"
+      },
+      {
+        "teste": "grade 2° deslocada 1° (VIIRS ≥ 100)",
+        "casos": 10566,
+        "dentro de ±20%": "64%",
+        "diferença mediana": "14.3%"
+      },
+      {
+        "teste": "2012–2014, deixando o ano de fora (referência)",
+        "casos": 3087,
+        "dentro de ±20%": "64%",
+        "diferença mediana": "13.9%"
+      },
+      {
+        "teste": "2012–2014, calibrado só em 2017–2021 (extrapolação)",
+        "casos": 3087,
+        "dentro de ±20%": "61%",
+        "diferença mediana": "15.2%"
+      }
+    ],
     "nacional_loyo_metodo_final": {
       "correlacao_mensal": 0.998,
       "erro_anual_medio_abs": 0.0159
     },
     "faixa_incerteza": {
       "cobertura_90_nominal": 0.899,
-      "cobertura_80_nominal": 0.797,
+      "cobertura_80_nominal": 0.798,
       "largura_por_focos_modis": [
         {
           "focos MODIS no mês": "≤20",
-          "faixa de 90%: de": "+6%",
-          "até": "+229%"
+          "VIIRS real = convertido × (1 + de)": "-70%",
+          "até (1 + até)": "+249%",
+          "fator_baixo": 0.298,
+          "fator_alto": 3.495
         },
         {
           "focos MODIS no mês": "21–50",
-          "faixa de 90%: de": "-28%",
-          "até": "+81%"
+          "VIIRS real = convertido × (1 + de)": "-57%",
+          "até (1 + até)": "+72%",
+          "fator_baixo": 0.432,
+          "fator_alto": 1.721
         },
         {
           "focos MODIS no mês": "51–150",
-          "faixa de 90%: de": "-34%",
-          "até": "+44%"
+          "VIIRS real = convertido × (1 + de)": "-42%",
+          "até (1 + até)": "+44%",
+          "fator_baixo": 0.577,
+          "fator_alto": 1.443
         },
         {
           "focos MODIS no mês": "151–500",
-          "faixa de 90%: de": "-25%",
-          "até": "+31%"
+          "VIIRS real = convertido × (1 + de)": "-26%",
+          "até (1 + até)": "+31%",
+          "fator_baixo": 0.741,
+          "fator_alto": 1.314
         },
         {
           "focos MODIS no mês": ">500",
-          "faixa de 90%: de": "-19%",
-          "até": "+21%"
+          "VIIRS real = convertido × (1 + de)": "-19%",
+          "até (1 + até)": "+21%",
+          "fator_baixo": 0.813,
+          "fator_alto": 1.21
         }
       ],
-      "uso": "pre-2012: mostrar convertido com faixa de 90% conforme focos MODIS da regiao no mes"
+      "uso": "pre-2012: faixa de 90% = [convertido * fator_baixo, convertido * fator_alto], escolhendo a linha pelos focos MODIS (brutos) da regiao no mes; calibrada em regioes de 2 graus com qualquer foco MODIS, sem filtrar pelo VIIRS"
     },
     "debate_metodos": {
       "covariaveis_modis": "rejeitada (65,9% -> 65,4%; 1 de 10 anos; igual ao controle embaralhado)",
@@ -403,6 +450,5 @@
       "teste_final_2022_2025_pct20": 0.533,
       "script": "notebooks/exp_debate_metodos.py"
     }
-  },
-  "nota": "A secao loyo_2012_2021 (notebook 05) usa a versao 1 do metodo (bloco 5 graus, media Terra/Aqua). O metodo final esta em prova_harmonizacao (notebook 07)."
+  }
 }

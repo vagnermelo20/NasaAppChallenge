@@ -59,3 +59,11 @@ CSV FIRMS (pontos) -> filtro -> célula 0,25° + mês -> contagens por sensor
   `lat, lon, ano, mes, focos_harmonizados, fonte ('modis_convertido'|'viirs'), dado_incompleto (bool)`.
   O app começa usando um mock com esse formato gerado a partir do `grid_monthly.parquet`.
 - **Deduplicação VIIRS (375 m -> 1 km)** fica como melhoria opcional; o fator `k` já absorve a diferença média.
+
+## Decisão final (revisão independente, 14/11/2026)
+- **Calendário continua mensal e harmonizado** (P1). Dia/hora entram pela busca de focos (R12).
+- **Base de focos (R12):** `data/processed/focos/focos_AAAA.parquet` (um arquivo por ano, zstd, ordenado por data; colunas `lat, lon, data, hora_utc, satelite, frp, daynight, lat_cel, lon_cel, peso_harmonizado`). Mesmos filtros do harmonized (confiança, máscara, células do Brasil). Teste obrigatório: Σ `peso_harmonizado` por célula × mês = `focos_harmonizados` (tolerância 1e-6). Nenhum arquivo > 50 MB.
+- **A2:** mantido; resultado declarado como não atingido na célula (ver spec).
+- **Comunicação honesta:** "na nossa comparação, dois VIIRS iguais concordam 85% por mês; o limite só de contagem seria 93,6%"; deriva orbital é a hipótese principal (hora média de passagem do Aqua 13,65 h → 14,90 h em 2025); "S-NPP sem dados desde 02/11/2026"; o "92%" é da escala anual, o número mensal é 66%.
+- **2026:** recortado às células 0,25° presentes em 2001–2025 (salvo células comprovadamente no Brasil); também anexado ao `grid_sat`.
+- **NOAA-20/21 após o S-NPP:** fora do escopo agora.

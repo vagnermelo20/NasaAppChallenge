@@ -8,10 +8,10 @@ seasonality charts and downloadable data, with the goal of comparing satellite
 records on a consistent VIIRS-equivalent scale.
 
 **Status:** the application now uses the delivered real harmonized dataset:
-1,212,739 cell-month records for 2001–2025, with 15 incomplete months flagged.
+1,252,185 cell-month records for 2001–2026 (2026 provisional; months with missing observation days flagged).
 The map, calendar, trends and CSV exports are connected to this delivery.
-Official cell-scale validation of the final method remains under review; the
-version-1 peak-month test did not meet the 80% target. Data for 2026 and public
+Final-method validation is complete: the 0.25° cell peak-month criterion (80%) was not met
+(73.7%; 90.4% within ±1 month); see the methodology for all scales. Data for 2026 and public
 deployment are still pending. No public application URL is recorded yet.
 
 ## Why harmonization matters
@@ -105,8 +105,8 @@ scientific acceptance; the science team must confirm its calibration and validat
 Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/), including the
 [historical archive](https://firms.modaps.eosdis.nasa.gov/download/).
 The existing exploratory pipeline uses MODIS Collection 6.1 and VIIRS S-NPP
-375 m country files for Brazil, 2001–2025. Extending the dataset to 2026 is a
-separate data-team task.
+375 m country files for Brazil, 2001–2025, plus 2026 from the FIRMS API (standard data to 31 July,
+near-real-time after; no S-NPP data since 2 November 2026).
 
 The delivered method in [docs/metodologia.md](docs/metodologia.md) calibrates Terra and Aqua
 separately against S-NPP during 2012–2021, by 5° block and calendar month,
