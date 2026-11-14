@@ -400,6 +400,7 @@ def fire_legend(harmonized: bool = False, view_mode: str = 'Analysis grid', peri
         .leaflet-control-zoom a,.ember-expand {background:#102335;color:#e3f3ff;border:0;}
         .leaflet-control-zoom a:hover,.ember-expand:hover {background:#23445d;color:#a1e3ff;}
         .ember-expand {width:32px;height:32px;cursor:pointer;font-size:23px;}
+        .ember-expand:focus-visible {outline:3px solid #88d8fa;outline-offset:3px;}
         .leaflet-control-layers {background:#102335;color:#edf3fc;border:1px solid #314a60;border-radius:9px;}
         .leaflet-control-attribution {background:rgba(12,24,40,.8);color:#d8e5f4;font-size:9px;}
         .leaflet-control-attribution a {color:#88d8fa;}
@@ -468,6 +469,8 @@ def show_fire_map() -> None:
                                            width='stretch', persist_state='session',
                                            help='Red dots show recorded detection coordinates. Analysis grid shows monthly activity in 0.25° cells.')
         with st.expander('Layer appearance'):
+            compact_map = st.toggle('Compact map', value=False, key='fire_compact_map', persist_state='session',
+                                    help='Use a shorter map on small screens. All data remain available in the tables and CSV downloads.')
             basemap = st.selectbox('Map background', list(MAP_BASES), key='fire_basemap_satellite', persist_state='session')
             opacity = st.slider('Layer opacity', .25, 1., .8, .05, key='fire_opacity', persist_state='session')
     region = st.session_state.get('regiao') if limit else None
@@ -546,8 +549,10 @@ def show_fire_map() -> None:
         view.fit_bounds([[south, west], [north, east]])
     folium.LayerControl(position='topright', collapsed=True).add_to(view)
     fire_legend(harmonized, visual_mode, f'{MONTHS[month-1]} {year} · {area}').add_to(view)
-    st_folium(view, height=650, use_container_width=True,
-              key=f'fire_atlas_v3_{visual_mode}_{basemap}_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
+    st_folium(view, height=430 if compact_map else 650, use_container_width=True,
+              key=f'fire_atlas_v4_{compact_map}_{visual_mode}_{basemap}_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
+    st.caption('For a table of individual detections and UTC times, open Hotspot search. '
+               'Analysis grid values are also available below without relying on map colors.')
     st.caption(f'NASA FIRMS · {unit} per cell/month · unfilled cells are unclassified. '
                'Counts do not measure fire severity or burned area. Map dates are independent of the calendar range.')
     if visual_mode == 'Signal view':
@@ -1241,7 +1246,7 @@ def main() -> None:
     if elapsed is not None:
         st.caption(f"Calendar source: {Path(path).name} · Query {elapsed:.3f} s · UTC months · 0.25° grid")
     else:
-        st.caption('NASA FIRMS · Harmonized activity and processed sensor observations · Scientific acceptance under review')
+        st.caption('NASA FIRMS · Harmonized activity and processed sensor observations · A2 cell-scale peak target not met')
 
 
 if __name__ == '__main__':

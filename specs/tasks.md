@@ -82,7 +82,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B7** (1 h) Aba Trends: série anual + sazonalidade
 - [x] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
 - [x] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
-- [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
+- [ ] **B10** Acabamento implementado: fonte 16 px, mapa compacto opcional, foco visível no botão de tela cheia e orientação para alternativas em tabela. Conferência final com A/B20; esta entrega não foi testada por solicitação do usuário.
 - [x] **B11** Integrar `harmonized.parquet` real, grade nova, metadados e provas entregues por A; revisão visual continua em B10 · ver `specs/handoff_A_para_B.md`
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
@@ -93,7 +93,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B17** Textos finais: orientação do mês de pico junto ao calendário (áreas de ~2° ou centenas de focos/ano; ±1 mês em áreas pequenas); A2 final explicitamente não atingido (73,7%, ±1 mês 90,4%); Methodology e About distinguem acordo mensal 66% e anual 92% em regiões 2°, com os subconjuntos avaliados. About real sem aviso de mock; removidos avisos antigos de validação por executar. 24 testes passaram e as três abas foram conferidas na aplicação local · R11
 - [x] **B18** Aba Hotspot search: intervalo UTC inclusivo de até 92 dias, filtro por sensor e coordenadas na região aplicada; lê somente os arquivos anuais necessários. Tabela e CSV de até 200 mil focos, com data, HH:MM UTC, satélite, lat/lon, FRP e peso harmonizado; excesso exige recorte, sem CSV parcial. Comparação em até seis anos soma pesos e rotula pré-2012 como aproximado; intervalos incompletos, sensores indisponíveis e 29/fev inválido não recebem comparação numérica. Faixas mensais não são apresentadas como intervalos de confiança calibrados para dias exatos. 26 testes passaram; API/CSV reais: 1–7/out/2026 = 39.965 focos, consulta 0,233 s; bloqueio >200 mil, intervalo >92 dias e novembro incompleto conferidos · R12
 - [ ] **B19** (opcional) Faixa de incerteza de 90% antes de 2012 (`metrics.json → prova_harmonizacao → faixa_incerteza`)
-- [ ] **B20** Conferência manual de `app/VERIFY.md` (Chrome, celular, PNG, região vazia)
+- [ ] **B20** Conferência de `app/VERIFY.md` atribuída à Pessoa A pelo usuário: Chrome, celular, teclado, PNG e região vazia. Não executada nesta entrega, conforme solicitado.
 
 **Roteiro do B (ordem sugerida, atualizado em 14/11/2026 depois do B21):**
 1. **B15** — último mês completo no destaque (rápido; conserta a demo do R9).

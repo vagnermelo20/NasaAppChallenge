@@ -1,5 +1,11 @@
 # Front-end verification and science handoff
 
+Latest B10/B20 handoff: font size increased to 16 px, a Compact map control
+added for small screens, visible keyboard focus added to the fullscreen button,
+and table alternatives identified beside the map. At the user's request, this
+delivery was not tested or visually checked. Person A owns the remaining review,
+including Chrome, mobile, keyboard navigation, PNG export and empty selections.
+
 Run from the repository root:
 
 ```powershell
