@@ -55,9 +55,9 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 ## Pessoa B — Front-end (site do projeto) · R7–R11
 **Passo a passo detalhado, com critério de "pronto" em cada etapa: [`frontend_pessoa_B.md`](frontend_pessoa_B.md).**
 
-- [ ] **B0** (15 min) Ambiente: `app/app.py` abrindo com `streamlit run`
-- [ ] **B1** (5 min) Rodar `app/make_mock.py` (script já criado) e ligar o app ao mock
-- [ ] **B2** (30 min) Layout: barra lateral de filtros + abas Calendar / Trends / Methodology / About
+- [x] **B0** (15 min) Ambiente: `app/app.py` abrindo com `streamlit run`
+- [x] **B1** (5 min) Rodar `app/make_mock.py` (script já criado) e ligar o app ao mock
+- [x] **B2** (30 min) Layout: barra lateral de filtros + abas Calendar / Trends / Methodology / About
 - [ ] **B3** (2 h) Região: desenho no mapa (retângulo/polígono) ou lat/lon + raio · R7
 - [ ] **B4** (1,5 h) Consulta DuckDB da região por ano × mês em < 3 s · R7, A3
 - [ ] **B5** (2 h) Calendário heatmap ano × mês (viridis), meses incompletos marcados · R8
