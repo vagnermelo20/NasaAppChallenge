@@ -171,7 +171,7 @@ Aspecto final, tela cheia e layout móvel permanecem para conferência visual do
 ---
 
 ## Juntos (A + B) — Entrega · A4
-- [ ] **J1** (1 h) Deploy no Streamlit Community Cloud direto do GitHub; testar o link público em 3 regiões
+- [x] **J1** Publicado no Streamlit Community Cloud: **https://ember-fire-calendar.streamlit.app** (branch `main`, `app/app.py`, Python 3.14, `app/requirements.txt`). Testado no link público em 14/11/2026: mapa, calendário (out/2026 −28,5% vs mediana; consulta 0,13 s) e busca por datas (1–7/out/2026: 39.965 focos em 0,14 s, CSV). Mantido acordado pelo fluxo `.github/workflows/manter-app-acordado.yml` (visita a cada 6 h)
 - [ ] **J2** (1 h) README final em inglês: problema, método, link do app, dados NASA usados, como rodar, equipe
 - [ ] **J3** (2 h) Vídeo de 30 s + slides: história (incêndio real) → degrau de 2012 sumindo → demo do calendário
 - [ ] **J4** (30 min) Envio no portal do Space Apps com **2 h de folga** antes do prazo
