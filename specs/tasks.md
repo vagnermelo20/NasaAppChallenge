@@ -61,10 +61,10 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B3** (2 h) Região: desenho no mapa (retângulo/polígono) ou lat/lon + raio · R7
 - [x] **B4** (1,5 h) Consulta DuckDB da região por ano × mês em < 3 s · R7, A3
 - [x] **B5** (2 h) Calendário heatmap ano × mês (viridis), meses incompletos marcados · R8
-- [ ] **B6** (1,5 h) Cartão mês atual × mediana + modo anomalia (PuOr) · R9
-- [ ] **B7** (1 h) Aba Trends: série anual + sazonalidade
+- [x] **B6** (1,5 h) Cartão mês atual × mediana + modo anomalia (PuOr) · R9
+- [x] **B7** (1 h) Aba Trends: série anual + sazonalidade
 - [x] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
-- [ ] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
+- [x] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
 - [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
@@ -81,6 +81,14 @@ o calendário após **Apply map selection**. No modo por coordenadas, a prévia 
 é opcional; os campos persistem ao trocar de modo. Recursos externos reduzidos a
 Leaflet + Leaflet.Draw (2 scripts e 2 estilos). Sete testes passaram após o ajuste;
 consulta por coordenadas confirmada em execução sem carregar o componente do mapa.
+
+Entrega B6/B7/B9: comparação do último mês disponível com o mesmo mês em anos
+anteriores completos; anomalias PuOr centradas em zero, iguais às exportadas no CSV.
+Meses incompletos não recebem anomalia; mediana zero e histórico ausente ficam sem percentual.
+Categorias requerem pelo menos 3 anos de referência. Trends diferencia anos completos e parciais.
+Methodology carrega documentos/métricas quando disponíveis, com aviso provisório enquanto faltam.
+Validação: 11 testes passaram, quatro abas conferidas via API local, CSV/calendário coerentes.
+B10 permanece pendente da conferência visual no celular/Chrome; B11 depende da Pessoa A.
 
 ---
 

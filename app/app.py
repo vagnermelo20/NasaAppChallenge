@@ -12,6 +12,7 @@ import folium
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import shapely
 import streamlit as st
 from folium.plugins import Draw
@@ -120,21 +121,70 @@ def drawn_region(payload: dict) -> str | None:
     return shapely.union_all(polygons).wkt if polygons else None
 
 
-def calendar_figure(series: pd.DataFrame):
+def anomaly_values(series: pd.DataFrame) -> pd.Series:
+    """Compare each complete month only with earlier complete years."""
+    result = pd.Series(np.nan, index=series.index, dtype=float)
+    complete = series[~series.incompleto & series.focos.notna()]
+    for index, row in complete.iterrows():
+        history = complete[(complete.mes == row.mes) & (complete.ano < row.ano)].focos
+        median = history.median()
+        if pd.notna(median) and median > 0:
+            result.loc[index] = (row.focos - median) / median * 100
+    return result
+
+
+def latest_comparison(series: pd.DataFrame) -> dict:
+    available = series[series.focos.notna()].sort_values(['ano', 'mes'])
+    if available.empty:
+        return {}
+    latest = available.iloc[-1]
+    history = series[(series.mes == latest.mes) & (series.ano < latest.ano)
+                     & ~series.incompleto & series.focos.notna()].copy()
+    median = history.focos.median()
+    delta = ((latest.focos - median) / median * 100
+             if pd.notna(median) and median > 0 and not latest.incompleto else None)
+    if latest.incompleto:
+        category = 'Incomplete month'
+    elif len(history) < 3:
+        category = 'Limited history'
+    elif latest.focos > history.focos.quantile(0.90):
+        category = 'Critical'
+    elif latest.focos > history.focos.quantile(0.75):
+        category = 'Above normal'
+    elif latest.focos < history.focos.quantile(0.25):
+        category = 'Below normal'
+    else:
+        category = 'Normal'
+    return dict(year=int(latest.ano), month=int(latest.mes), value=float(latest.focos),
+                incomplete=bool(latest.incompleto), history=history, median=median,
+                delta=delta, category=category)
+
+
+def calendar_figure(series: pd.DataFrame, anomaly: bool = False):
     values = series.pivot(index='ano', columns='mes', values='focos')
-    labels = values.map(lambda n: f'{n:,.0f}' if pd.notna(n) else '—')
+    shown = (series.assign(anomaly=anomaly_values(series))
+             .pivot(index='ano', columns='mes', values='anomaly')) if anomaly else values
+    labels = shown.map(lambda n: (f'{n:+.0f}%' if anomaly else f'{n:,.0f}')
+                       if pd.notna(n) else '—')
     flags = series.pivot(index='ano', columns='mes', values='incompleto')
     for year in values.index:
         for month in values.columns:
-            if flags.loc[year, month] and pd.notna(values.loc[year, month]):
+            if flags.loc[year, month] and pd.notna(shown.loc[year, month]):
                 labels.loc[year, month] += '*'
-    fig = px.imshow(values.to_numpy(), x=MONTHS, y=values.index.astype(str),
-                    color_continuous_scale='viridis', aspect='auto',
-                    labels={'x': 'Month (UTC)', 'y': 'Year', 'color': 'Hotspots / month'})
+    fig = px.imshow(shown.to_numpy(), x=MONTHS, y=values.index.astype(str),
+                    color_continuous_scale='PuOr' if anomaly else 'viridis', aspect='auto',
+                    labels={'x': 'Month (UTC)', 'y': 'Year',
+                            'color': 'Anomaly (%)' if anomaly else 'Hotspots / month'})
+    if anomaly:
+        finite = shown.to_numpy()[np.isfinite(shown.to_numpy())]
+        extent = max(1., float(np.abs(finite).max())) if len(finite) else 1.
+        fig.update_coloraxes(cmin=-extent, cmax=extent, cmid=0)
     fig.update_traces(text=labels.to_numpy(), texttemplate='%{text}',
                       customdata=np.where(flags.to_numpy(), 'Incomplete / unavailable', 'Complete'),
-                      hovertemplate='Year: %{y}<br>Month: %{x}<br>Hotspots: %{z:,.1f}'
-                                    '<br>%{customdata}<extra></extra>', hoverongaps=False)
+                      hovertemplate=('Year: %{y}<br>Month: %{x}<br>'
+                                     + ('Anomaly: %{z:+.1f}%' if anomaly else 'Hotspots: %{z:,.1f}')
+                                     + '<br>%{customdata}<extra></extra>'),
+                      hoverongaps=False)
     if 2011 in values.index and 2012 in values.index:
         position = list(values.index).index(2011) + 0.5
         fig.add_hline(y=position, line_dash='dash', line_color='white', line_width=2)
@@ -148,10 +198,7 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
                  region_wkt: str | None, dataset: str) -> pd.DataFrame:
     result = series.rename(columns={'ano': 'year', 'mes': 'month', 'focos': 'hotspots',
                                     'incompleto': 'incomplete'}).copy()
-    complete = series[~series.incompleto & series.focos.notna()]
-    baseline = result.month.map(complete.groupby('mes').focos.median())
-    result['anomaly_pct'] = (result.hotspots - baseline) / baseline.where(baseline > 0) * 100
-    result.loc[result.incomplete, 'anomaly_pct'] = np.nan
+    result['anomaly_pct'] = anomaly_values(series)
     sources = coverage.rename(columns={'ano': 'year', 'mes': 'month'})
     result = result.merge(sources[['year', 'month', 'source']], how='left', on=['year', 'month'])
     fallback = np.where(result.year < 2012, 'modis_convertido', 'viirs')
@@ -161,6 +208,110 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
     result['region_wkt'] = region_wkt or 'Brazil (entire dataset)'
     return result[['year', 'month', 'hotspots', 'anomaly_pct', 'incomplete', 'source',
                    'dataset', 'region_wkt']]
+
+
+def show_comparison(series: pd.DataFrame, prefix: str) -> None:
+    summary = latest_comparison(series)
+    st.subheader('Latest available month vs history')
+    if not summary:
+        st.info('No observed month is available in this selection.')
+        return
+    year, month = summary['year'], summary['month']
+    delta = summary['delta']
+    with st.container(horizontal=True):
+        st.metric(f'{MONTHS[month - 1]} {year} · hotspots', f"{summary['value']:,.0f}",
+                  delta=f'{delta:+.1f}% vs historical median' if delta is not None else None,
+                  delta_color='off')
+        st.metric('Historical activity category', summary['category'])
+    st.caption(f"Baseline: {len(summary['history'])} earlier complete years within the selected range. "
+               'Categories describe past activity, not forecasts or operational alerts. At least 3 years are required for a category.')
+    if summary['incomplete']:
+        st.warning('The latest month is incomplete. Its total is provisional; percentage comparisons and category thresholds are suppressed.')
+    elif pd.notna(summary['median']) and summary['median'] == 0:
+        st.caption('Historical median is zero, so a percentage change is undefined.')
+    comparisons = series[(series.mes == month) & series.focos.notna()].sort_values('ano')
+    fig = go.Figure(go.Bar(
+        x=comparisons.ano, y=comparisons.focos,
+        marker_color=['#35B779' if y == year else '#31688E' for y in comparisons.ano],
+        marker_pattern_shape=['/' if flag else '' for flag in comparisons.incompleto],
+        name='Hotspots', hovertemplate='Year: %{x}<br>Hotspots: %{y:,.1f}<extra></extra>'))
+    if pd.notna(summary['median']):
+        fig.add_hline(y=float(summary['median']), line_dash='dash',
+                      annotation_text='Earlier-year median')
+    fig.update_layout(title=f'{prefix}{MONTHS[month - 1]} across years',
+                      xaxis_title='Year', yaxis_title='VIIRS-equivalent hotspots / month', height=340)
+    st.plotly_chart(fig, key='historical_comparison', alt='Same-month activity across years, with latest year highlighted and prior-year median.',
+                    config={'displaylogo': False})
+
+
+def show_trends(series: pd.DataFrame, prefix: str) -> None:
+    annual = series.groupby('ano').agg(total=('focos', lambda x: x.sum(min_count=1)),
+                                     observed=('focos', 'count'), incomplete=('incompleto', 'any')).reset_index()
+    annual['complete'] = (annual.observed == 12) & ~annual.incomplete
+    fig = go.Figure()
+    for before, label, color in [(True, 'MODIS converted', '#31688E'),
+                                  (False, 'VIIRS observed', '#35B779')]:
+        part = annual[annual.ano.lt(2012) == before]
+        fig.add_trace(go.Scatter(x=part.ano, y=part.total.where(part.complete),
+                                mode='lines+markers', name=label, connectgaps=False,
+                                line=dict(color=color)))
+    partial = annual[~annual.complete & annual.total.notna()]
+    fig.add_trace(go.Scatter(x=partial.ano, y=partial.total, mode='markers',
+                            name='Partial-year total', marker=dict(symbol='diamond-open', size=11, color='#FDE725')))
+    if annual.ano.min() < 2012:
+        fig.add_vrect(x0=float(annual.ano.min()) - .5, x1=min(2011.5, float(annual.ano.max()) + .5),
+                      fillcolor='#31688E', opacity=.12, line_width=0)
+    fig.update_layout(title=f'{prefix}Annual activity', xaxis_title='Year',
+                      yaxis_title='VIIRS-equivalent hotspots / year', height=360)
+    st.plotly_chart(fig, key='annual_trend', alt='Annual activity with converted MODIS years shaded and partial years shown as open diamonds.',
+                    config={'displaylogo': False})
+    st.caption('Open diamonds are incomplete-year totals and should not be compared directly with complete years.')
+    complete = series[~series.incompleto & series.focos.notna()]
+    seasonal = complete.groupby('mes').agg(median=('focos', 'median'), years=('focos', 'count')).reindex(range(1, 13))
+    seasonal['month'] = MONTHS
+    fig = px.bar(seasonal, x='month', y='median', color_discrete_sequence=['#35B779'],
+                 hover_data=['years'], labels={'month': 'Month (UTC)', 'median': 'Median hotspots / month', 'years': 'Complete years'},
+                 title=f'{prefix}Seasonality across complete months')
+    st.plotly_chart(fig, key='seasonality', alt='Median monthly activity and number of complete years used for each month.',
+                    config={'displaylogo': False})
+
+
+def show_methodology(is_mock: bool) -> None:
+    st.subheader('Methodology')
+    doc = ROOT / 'docs/metodologia.md'
+    if doc.exists():
+        st.markdown(doc.read_text(encoding='utf-8'))
+    else:
+        st.info('The science team has not delivered the final methodology document yet.')
+        st.markdown('This prototype aggregates NASA FIRMS hotspots into 0.25° cells and UTC calendar months. '
+                    'Region selection includes cells by their centers. The planned harmonization converts historical MODIS '
+                    'activity to the VIIRS scale; final calibration and out-of-sample validation are pending.')
+    if is_mock:
+        st.warning('The current mock uses MODIS × 3.8 before 2012 and VIIRS counts thereafter. '
+                   'This provisional factor is not the final scientific method.')
+    st.markdown('**Historical comparisons:** each month is compared with the same month in earlier complete years '
+                'within the selected range. Zero medians, missing history and incomplete target months have no percentage anomaly. '
+                'The activity categories use the 25th, 75th and 90th percentiles and require at least three historical years. '
+                'They are descriptive categories, not fire predictions.\n\n'
+                '**Coverage:** missing cell-month records are treated as zero within the source coverage, as agreed in the data contract. '
+                'Entire missing observation months require additional coverage metadata. Hotspots do not measure burned area or unique fires.')
+    metrics = ROOT / 'reports/metrics.json'
+    if metrics.exists():
+        try:
+            st.json(json.loads(metrics.read_text(encoding='utf-8')))
+        except (OSError, ValueError) as error:
+            st.warning(f'Validation metrics could not be loaded: {error}')
+    else:
+        st.caption('Validation metrics pending — no accuracy claims are made for the mock.')
+    figures = [('harmonizado_anual.png', 'Harmonization comparison supplied by the science team'),
+               ('v2_serie_anual.png', 'Exploratory raw counts by sensor; not a harmonized result'),
+               ('v6_mapa_k.png', 'Exploratory spatial variation in sensor count ratios'),
+               ('b4_curva_deteccao.png', 'Exploratory detection analysis')]
+    for filename, description in figures:
+        image = ROOT / 'reports' / filename
+        if image.exists():
+            with st.expander(description):
+                st.image(str(image), caption=description, alt=description, width='stretch')
 
 
 @st.fragment
@@ -248,7 +399,8 @@ def main() -> None:
     st.session_state.setdefault('map_seed_wkt', None)
     with st.sidebar:
         st.header('Explore activity')
-        mode = st.radio('Region selection', ['Draw on map', 'Lat-Lon + radius'], key='region_mode')
+        mode = st.radio('Region selection', ['Draw on map', 'Lat-Lon + radius'], key='region_mode',
+                        help='Draw and apply a shape, or enter coordinates and click Update. Coordinates work without loading the map.')
         if mode != st.session_state.get('previous_mode'):
             st.session_state['map_seed_wkt'] = st.session_state['regiao']
             st.session_state['draft_region'] = st.session_state['regiao']
@@ -257,7 +409,8 @@ def main() -> None:
         with st.form('filters'):
             if first_year < last_year:
                 years = st.slider('Year range (UTC)', first_year, last_year,
-                                  (first_year, last_year), key='year_range')
+                                  (first_year, last_year), key='year_range',
+                                  help='This range also defines the earlier years available for historical comparisons.')
             else:
                 years = (first_year, last_year)
                 st.caption(f'Available year: {first_year}')
@@ -282,10 +435,15 @@ def main() -> None:
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')
-    calendar_tab, trends, methodology, about = st.tabs(['Calendar', 'Trends', 'Methodology', 'About'])
+    calendar_tab, trends, methodology, about = st.tabs(
+        ['Calendar', 'Trends', 'Methodology', 'About'], key='main_tabs', on_change='rerun')
+    if not calendar_tab.open:
+        # Preserve the editable shapes when the browser component leaves the page.
+        st.session_state['map_seed_wkt'] = st.session_state.get('draft_region')
+        st.session_state.pop('last_map_event', None)
     with calendar_tab:
         st.subheader('Select an area')
-        if mode == 'Draw on map' or st.toggle('Show map preview', value=False, key='show_map'):
+        if calendar_tab.open and (mode == 'Draw on map' or st.toggle('Show map preview', value=False, key='show_map')):
             region_map(mode)
         else:
             st.caption('Set coordinates and radius in the sidebar, then click Update. Map preview is optional.')
@@ -302,13 +460,19 @@ def main() -> None:
         st.subheader('Burning activity calendar')
         if series.focos.fillna(0).sum() == 0:
             st.info('No detections in the selected cells and period. Try a larger region; small areas may contain no cell centers.')
-        figure = calendar_figure(series)
+        anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode', persist_state='session',
+                            help='Compare each complete month with the same month in earlier complete years in the selected period.')
+        figure = calendar_figure(series, anomaly=anomaly)
         figure.update_layout(title=f"{'MOCK · ' if is_mock else ''}{st.session_state['region_label']} · {start}–{end}")
         st.plotly_chart(figure, key='calendar', width='stretch',
                         alt='Monthly burning activity by year in the selected region, in VIIRS-equivalent hotspots.',
                         config={'displaylogo': False, 'toImageButtonOptions': {
                             'format': 'png', 'filename': f"{'mock_' if is_mock else ''}calendar_{start}-{end}"}})
         st.caption('* Incomplete data · — Outside available coverage. Before 2012: MODIS converted to VIIRS scale.')
+        if anomaly:
+            st.caption('Blank cells have incomplete data, no earlier baseline, or a zero median. The color scale is centered on zero.')
+        if calendar_tab.open:
+            show_comparison(series, 'MOCK · ' if is_mock else '')
         complete = series[~series.incompleto & series.focos.notna()]
         seasonal = complete.groupby('mes').focos.median()
         annual = series.groupby('ano').focos.sum(min_count=1)
@@ -328,7 +492,7 @@ def main() -> None:
         filename = f"{'mock_' if is_mock else ''}hotspots_calendar_{start}-{end}_{region_name}_{today}.csv"
         st.download_button('Download monthly CSV', export.to_csv(index=False).encode('utf-8-sig'),
                            filename, 'text/csv', key='download_csv', on_click='ignore')
-        st.caption('CSV anomalies use the median for the same month across complete months in the selected years. '
+        st.caption('CSV anomalies use the median for the same month in earlier complete years within the selected range. '
                    'A zero or missing baseline leaves the anomaly blank. Use the chart camera button to save a PNG.')
         with st.expander('Monthly values and coverage notes'):
             st.dataframe(export.drop(columns='region_wkt'), hide_index=True,
@@ -337,10 +501,11 @@ def main() -> None:
                        'A completely missing observation month cannot be distinguished without additional coverage metadata.')
     with trends:
         st.subheader('Historical trends')
-        st.caption('Annual activity and monthly seasonality charts will be added in the next delivery.')
+        if trends.open:
+            show_trends(series, 'MOCK · ' if is_mock else '')
     with methodology:
-        st.subheader('Methodology')
-        st.caption('Harmonization documentation and validation results will appear here when available.')
+        if methodology.open:
+            show_methodology(is_mock)
     with about:
         st.subheader('About this project')
         st.write('A NASA Space Apps prototype for exploring burning activity calendars from MODIS and VIIRS active fire hotspots.')

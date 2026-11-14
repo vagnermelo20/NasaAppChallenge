@@ -14,8 +14,8 @@ import pandas as pd
 from shapely.geometry import Point, box, mapping
 from streamlit.testing.v1 import AppTest
 
-from app.app import (cached_series, calendar_figure, complete_months, drawn_region,
-                     export_table, radius_polygon)
+from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
+                     drawn_region, export_table, latest_comparison, radius_polygon)
 
 
 class CalendarDataTests(unittest.TestCase):
@@ -83,16 +83,66 @@ class CalendarDataTests(unittest.TestCase):
             'focos': [10., 30., 0., 0.], 'incompleto': [False] * 4})
         coverage = series[['ano', 'mes']].assign(source='viirs')
         result = export_table(series, coverage, None, 'mock')
-        self.assertEqual(result.anomaly_pct.iloc[0], -50.)
-        self.assertEqual(result.anomaly_pct.iloc[1], 50.)
+        self.assertTrue(pd.isna(result.anomaly_pct.iloc[0]))
+        self.assertEqual(result.anomaly_pct.iloc[1], 200.)
         self.assertTrue(result.anomaly_pct.iloc[2:].isna().all())
         self.assertFalse(np.isinf(result.anomaly_pct).any())
         decoded = pd.read_csv(io.BytesIO(result.to_csv(index=False).encode('utf-8-sig')))
         self.assertEqual(decoded.hotspots.sum(), series.focos.sum())
         self.assertTrue((decoded.dataset == 'mock').all())
 
+    def test_latest_month_baseline_excludes_current_and_incomplete(self):
+        series = pd.DataFrame({'ano': [2020, 2021, 2022, 2023, 2024],
+                               'mes': [9] * 5, 'focos': [10., 20., 9999., 30., 100.],
+                               'incompleto': [False, False, True, False, False]})
+        summary = latest_comparison(series)
+        self.assertEqual(summary['median'], 20.)
+        self.assertEqual(summary['category'], 'Critical')
+        self.assertEqual(summary['delta'], 400.)
+        self.assertEqual(anomaly_values(series).iloc[-1], 400.)
+        self.assertTrue(pd.isna(anomaly_values(series).iloc[2]))
+        series.loc[4, 'incompleto'] = True
+        summary = latest_comparison(series)
+        self.assertEqual(summary['category'], 'Incomplete month')
+        self.assertIsNone(summary['delta'])
+
+    def test_latest_coverage_zero_count_and_no_false_alert(self):
+        series = pd.DataFrame({'ano': [2020, 2021, 2022, 2023, 2023],
+                               'mes': [1, 1, 1, 1, 2], 'focos': [0., 0., 0., 0., np.nan],
+                               'incompleto': [False, False, False, False, True]})
+        summary = latest_comparison(series)
+        self.assertEqual(summary['month'], 1)
+        self.assertEqual(summary['year'], 2023)
+        self.assertEqual(summary['category'], 'Normal')
+        self.assertIsNone(summary['delta'])
+
+    def test_calendar_anomalies_match_csv_and_center_on_zero(self):
+        rows = [(year, month, float(10 * 2 ** (year - 2020)) if month == 1 else 0., False)
+                for year in range(2020, 2024) for month in range(1, 13)]
+        series = pd.DataFrame(rows, columns=['ano', 'mes', 'focos', 'incompleto'])
+        coverage = series[['ano', 'mes']].assign(source='viirs')
+        export = export_table(series, coverage, None, 'mock')
+        figure = calendar_figure(series, anomaly=True)
+        self.assertEqual(figure.data[0].z[3][0], 300.)
+        self.assertEqual(export.loc[(export.year == 2023) & (export.month == 1), 'anomaly_pct'].iloc[0], 300.)
+        self.assertEqual(figure.layout.coloraxis.cmin, -figure.layout.coloraxis.cmax)
+        self.assertEqual(figure.layout.coloraxis.cmid, 0)
+
 
 class ApplicationTests(unittest.TestCase):
+    def test_methodology_missing_and_invalid_metrics(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            with patch('app.app.ROOT', root):
+                app = AppTest.from_string('from app.app import show_methodology\nshow_methodology(True)').run()
+                self.assertFalse(app.exception)
+                self.assertTrue(any('pending' in c.value.lower() for c in app.caption))
+                (root / 'reports').mkdir()
+                (root / 'reports/metrics.json').write_text('{invalid', encoding='utf-8')
+                app.run()
+                self.assertFalse(app.exception)
+                self.assertTrue(any('could not be loaded' in w.value for w in app.warning))
+
     def test_drawing_persists_and_delete_resets_region(self):
         payload = {'all_drawings': None}
         with patch('streamlit_folium.st_folium', side_effect=lambda *args, **kwargs: payload):
