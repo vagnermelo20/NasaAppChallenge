@@ -1,0 +1,11 @@
+pandas
+pyarrow
+duckdb
+requests
+matplotlib
+streamlit
+jupyter
+ipykernel
+streamlit-folium
+plotly
+shapely

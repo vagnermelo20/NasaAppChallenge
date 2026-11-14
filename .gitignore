@@ -1,0 +1,7 @@
+.venv/
+data/raw/
+__pycache__/
+*.csv
+.ipynb_checkpoints/
+.claude/settings.local.json
+.env
