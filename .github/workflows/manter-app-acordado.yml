@@ -1,0 +1,46 @@
+# Mantém o app público sempre acordado.
+# O Streamlit Community Cloud coloca o app para "dormir" quando ele fica um tempo sem visitas.
+# Este fluxo abre o site num navegador sem tela a cada 6 horas; se o app estiver dormindo,
+# clica no botão de acordar. Também pode ser rodado à mão na aba Actions do GitHub.
+name: Manter app acordado
+
+on:
+  schedule:
+    - cron: "17 */6 * * *"   # a cada 6 horas (minuto 17, para fugir do horário cheio)
+  workflow_dispatch:
+
+jobs:
+  visitar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Instalar navegador sem tela
+        run: |
+          pip install playwright==1.48.0
+          python -m playwright install --with-deps chromium
+      - name: Visitar o app (e acordar se estiver dormindo)
+        env:
+          APP_URL: https://ember-fire-calendar.streamlit.app/
+        run: |
+          python - <<'EOF'
+          import os
+          from playwright.sync_api import sync_playwright
+          url = os.environ["APP_URL"]
+          with sync_playwright() as p:
+              b = p.chromium.launch()
+              page = b.new_page()
+              page.goto(url, timeout=120_000)
+              page.wait_for_timeout(15_000)
+              botao = page.get_by_role("button", name="Yes, get this app back up!")
+              if botao.count() > 0:
+                  print("App dormindo: acordando...")
+                  botao.first.click()
+                  page.wait_for_timeout(90_000)
+              else:
+                  print("App acordado.")
+              print("Título:", page.title())
+              b.close()
+          EOF
