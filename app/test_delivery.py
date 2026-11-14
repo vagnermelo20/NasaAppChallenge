@@ -18,7 +18,8 @@ from app.check_release import inspect_release
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      radius_polygon, fire_class, fire_features, fire_legend,
-                     observation_cells, observation_months, harmonized_map_cells)
+                     observation_cells, observation_months, harmonized_map_cells,
+                     fire_signal_features, add_activity_layer)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -52,6 +53,25 @@ class ReleaseReadinessTests(unittest.TestCase):
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_signal_view_preserves_counts_and_marks_only_cell_centers(self):
+        cells = pd.DataFrame({'lat': [-18.25, -18.0], 'lon': [-56.5, -56.25],
+                              'hotspots': [5.75, 1200.5]})
+        points = fire_signal_features(cells, 'MODIS converted', 2010, 9)['features']
+        self.assertEqual(points[0]['geometry'], {'type': 'Point', 'coordinates': [-56.375, -18.125]})
+        self.assertEqual(sum(p['properties']['hotspots'] for p in points), cells.hotspots.sum())
+        self.assertLess(points[0]['properties']['radius'], points[1]['properties']['radius'])
+        self.assertLessEqual(points[1]['properties']['radius'], 15)
+        self.assertIn('aggregate cell', points[0]['properties']['location_type'])
+        import folium
+        view = folium.Map(tiles=None)
+        add_activity_layer(view, cells, 'MODIS converted', 2010, 9, .8, 'Signal view')
+        fire_legend(True, 'Signal view', 'Sep 2010').add_to(view)
+        html = view.get_root().render()
+        self.assertIn('L.CircleMarker', html)
+        self.assertIn('ember-map-legend', html)
+        self.assertIn('Sep 2010', html)
+        self.assertIn('requestFullscreen', html)
+
     def test_scientific_satellite_grid_aggregates_passes_without_mixing_sensors(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'grid_sat.parquet'

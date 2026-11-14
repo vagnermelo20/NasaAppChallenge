@@ -77,6 +77,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B11** Integrar `harmonized.parquet` real, grade nova, metadados e provas entregues por A; revisão visual continua em B10 · ver `specs/handoff_A_para_B.md`
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
+- [x] **B14** Revisão visual solicitada: atlas escuro/satélite, símbolos proporcionais por centro de célula, grade alternativa, legenda horizontal, contorno regional e expansão do mapa · R7/R8
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
 
 Integração B11: Fire map abre na série real `harmonized.parquet` (2001–2025),
@@ -133,6 +134,15 @@ e popup de célula. Abas ocultas não geram mapas/gráficos desnecessários.
 Dezoito testes existentes e um novo teste de abertura/navegação passaram; cinco
 abas e opacidade conferidas via API local. O usuário escolheu fazer a revisão visual.
 As pendências científicas e a decisão de não publicar o mock foram preservadas.
+
+Revisão B14 após captura do usuário: a visualização padrão usa símbolos nos centros
+das células, mantendo a grade analítica como opção. Não há interpolação nem alteração
+dos valores/resolução. Fundos Esri escuro e satélite verificados por HTTP, com crédito
+ao provedor e aviso de que imagem de fundo não corresponde à data da observação NASA.
+Legenda horizontal compacta e controles redesenhados; componente versionado para
+evitar reutilizar a apresentação antiga. Vinte e dois testes passaram; alternância
+de fundo/estilo conferida em execução com totais preservados. Instância 8501 reiniciada.
+Aspecto final, tela cheia e layout móvel permanecem para conferência visual do usuário.
 
 ---
 

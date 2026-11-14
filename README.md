@@ -30,6 +30,14 @@ map-focused workspace with a dark observation catalog, compact indicators,
 layer opacity controls, a source card and a matching map legend. Calendar,
 Trends and Methodology load their content only when selected.
 
+The map opens in **Signal view** on an Esri dark atlas background. Proportional
+symbols and subtle halos locate the centers of the original 0.25° cells; they
+do not represent individual fire locations or burned extents. **Analysis grid**
+retains the original polygons. The compact horizontal legend, region outline
+and fullscreen control keep the map readable. Satellite imagery and the street
+map are alternative backgrounds, with provider attribution. Esri background
+imagery is context and is not synchronized to the NASA observation date.
+
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
 - Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.

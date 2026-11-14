@@ -32,11 +32,20 @@ EXAMPLES = {
 FIRE_COLORS = ['#440154', '#3B528B', '#21918C', '#5EC962', '#FDE725']
 FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
 FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
+MAP_BASES = {
+    'Dark atlas': ('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                   'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors and the GIS user community'),
+    'Satellite imagery': ('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                          'Imagery &copy; Esri, Vantor, Earthstar Geographics and the GIS user community'),
+    'Street map': ('OpenStreetMap', ''),
+}
 
 
 class FireLegend(MacroElement):
     rows: list[tuple[str, str]]
     units: str
+    view_mode: str
+    period: str
 
 
 def fire_class(count: float) -> int:
@@ -107,35 +116,112 @@ def fire_features(cells: pd.DataFrame, sensor: str, year: int, month: int) -> di
     return {'type': 'FeatureCollection', 'features': features}
 
 
-def fire_legend(harmonized: bool = False) -> MacroElement:
+def fire_signal_features(cells: pd.DataFrame, sensor: str, year: int, month: int) -> dict:
+    """Symbols locate aggregate cell centers, never individual fire detections."""
+    collection = fire_features(cells, sensor, year, month)
+    for feature in collection['features']:
+        west, south = feature['geometry']['coordinates'][0][0]
+        feature['geometry'] = {'type': 'Point', 'coordinates': [west + .125, south + .125]}
+        feature['properties']['radius'] = min(15., 3.5 + 1.8 * math.log1p(feature['properties']['hotspots']))
+        feature['properties']['location_type'] = 'Center of a 0.25° aggregate cell'
+    return collection
+
+
+def add_activity_layer(view: folium.Map, cells: pd.DataFrame, origin: str,
+                       year: int, month: int, opacity: float, mode: str) -> None:
+    if cells.empty:
+        return
+    fields = ['sensor', 'period', 'hotspots', 'range']
+    aliases = ['Source', 'UTC month', 'Activity in cell', 'Count range']
+    if mode == 'Signal view':
+        data = fire_signal_features(cells, origin, year, month)
+        folium.GeoJson(data, name='Activity glow', control=False, interactive=False,
+                       marker=folium.CircleMarker(radius=8), style_function=lambda feature: {
+                           'radius': feature['properties']['radius'] + 6,
+                           'fillColor': feature['properties']['color'], 'fillOpacity': .12,
+                           'stroke': False, 'interactive': False},
+                       ).add_to(view)
+        fields += ['location_type']
+        aliases += ['Location meaning']
+        marker = folium.CircleMarker(radius=5)
+        style = lambda feature: {
+            'radius': feature['properties']['radius'], 'fillColor': feature['properties']['color'],
+            'fillOpacity': opacity, 'color': '#D7EDF5', 'weight': .7, 'opacity': .65}
+    else:
+        data = fire_features(cells, origin, year, month)
+        marker = None
+        style = lambda feature: {
+            'fillColor': feature['properties']['color'], 'fillOpacity': opacity,
+            'color': '#B5D1DB', 'opacity': .22, 'weight': .4}
+    folium.GeoJson(data, name='NASA FIRMS activity', marker=marker, smooth_factor=0,
+                   style_function=style,
+                   highlight_function=lambda _: {'weight': 2, 'color': '#FFFFFF', 'fillOpacity': .98},
+                   tooltip=folium.GeoJsonTooltip(fields=fields, aliases=aliases, sticky=False),
+                   popup=folium.GeoJsonPopup(fields=fields, aliases=aliases),
+                   ).add_to(view)
+
+
+def fire_legend(harmonized: bool = False, view_mode: str = 'Analysis grid', period: str = '') -> MacroElement:
     # This is a Leaflet overlay, not a replacement for native Streamlit controls.
     legend = FireLegend()
-    legend.rows = list(zip(FIRE_COLORS, FIRE_LABELS))
-    legend.units = 'VIIRS-equivalent hotspots / cell / month' if harmonized else 'Detections / cell / month'
+    legend.rows = list(zip(FIRE_COLORS, [label.replace('More than ', '>') for label in FIRE_LABELS]))
+    legend.units = 'VIIRS-equivalent hotspots / cell' if harmonized else 'Detections / cell'
+    legend.view_mode = view_mode
+    legend.period = period
     legend._template = Template('''
         {% macro html(this, kwargs) %}
-        <div role="note" aria-label="NASA FIRMS monthly hotspot count legend"
-             style="position:absolute;bottom:28px;right:10px;z-index:999;
-                    background:rgba(12,24,40,.96);color:#edf3fc;padding:14px 16px;
-                    border:1px solid #3b526c;border-radius:12px;font:12px system-ui,sans-serif;
-                    box-shadow:0 8px 30px rgba(0,0,0,.24);max-width:180px;">
-          <strong>NASA FIRMS activity</strong><br>{{this.units}}
-          {% for color, label in this.rows %}
-          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
-            <span aria-hidden="true" style="display:inline-block;width:14px;height:14px;background:{{color}};"></span>
-            <span>{{label}}</span>
+        <div class="ember-map-heading" role="note">
+          <div style="color:#87a4bc;font-size:9px;letter-spacing:2px;font-weight:650;">EMBER / FIRE ATLAS</div>
+          <div style="font-size:14px;font-weight:650;margin-top:5px;">{{this.period}}</div>
+          <div style="font-size:10px;color:#a7bdce;margin-top:3px;">NASA FIRMS · {{this.view_mode}}</div>
+        </div>
+        <div class="ember-map-legend" role="note" aria-label="NASA FIRMS monthly hotspot count legend">
+          <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:9px;">
+            <strong style="font-size:11px;">{{this.units}}</strong><span style="color:#90aabf;font-size:10px;">PER MONTH</span>
           </div>
-          {% endfor %}
-          <div style="margin-top:8px;">Unfilled: not classified<br>Not burned area or fire severity</div>
+          <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:3px;">
+            {% for color, label in this.rows %}
+            <div><div style="height:5px;border-radius:3px;background:{{color}};"></div>
+              <div style="font-size:10px;color:#bdcedd;margin-top:5px;">{{label}}</div></div>
+            {% endfor %}
+          </div>
+          <div style="font-size:9px;color:#8fa8bc;margin-top:9px;">0.25° aggregates · not burned area or individual fire locations</div>
         </div>
         <style>
-        .leaflet-control-zoom a {background:#142031;color:#edf3fc;border-color:#29384d;}
-        .leaflet-control-zoom a:hover {background:#23374f;color:#88d8fa;}
-        .leaflet-control-layers {background:#142031;color:#edf3fc;border:1px solid #29384d;border-radius:8px;}
-        .leaflet-control-attribution {background:rgba(12,24,40,.9);color:#d8e5f4;}
+        .leaflet-container {background:#101820;font-family:system-ui,sans-serif;}
+        .ember-map-heading,.ember-map-legend {position:absolute;z-index:999;background:rgba(8,19,31,.90);color:#edf5fc;
+          border:1px solid rgba(157,199,228,.16);box-shadow:0 8px 28px rgba(0,0,0,.28);backdrop-filter:blur(16px);
+          font-family:system-ui,sans-serif;box-sizing:border-box;pointer-events:none;}
+        .ember-map-heading {top:18px;left:18px;padding:13px 17px;border-radius:12px;max-width:calc(100% - 90px);}
+        .ember-map-heading>div {overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+        .ember-map-legend {bottom:26px;left:50%;transform:translateX(-50%);width:min(390px,calc(100% - 30px));padding:13px 17px;border-radius:12px;}
+        .leaflet-bar {border:1px solid rgba(157,199,228,.2)!important;box-shadow:0 4px 18px #0004;border-radius:9px;overflow:hidden;}
+        .leaflet-control-zoom a,.ember-expand {background:#102335;color:#e3f3ff;border:0;}
+        .leaflet-control-zoom a:hover,.ember-expand:hover {background:#23445d;color:#a1e3ff;}
+        .ember-expand {width:32px;height:32px;cursor:pointer;font-size:23px;}
+        .leaflet-control-layers {background:#102335;color:#edf3fc;border:1px solid #314a60;border-radius:9px;}
+        .leaflet-control-attribution {background:rgba(12,24,40,.8);color:#d8e5f4;font-size:9px;}
         .leaflet-control-attribution a {color:#88d8fa;}
-        .leaflet-tooltip {background:#101a28;color:#edf3fc;border:1px solid #45617c;border-radius:8px;padding:10px;}
+        .leaflet-control-scale-line {background:rgba(8,19,31,.85);color:#bfd5e5;border-color:#587185;text-shadow:none;}
+        .leaflet-tooltip,.leaflet-popup-content-wrapper {background:#0e2031;color:#edf3fc;border:1px solid #45617c;border-radius:10px;}
+        @media(max-width:500px) {.ember-map-heading {top:10px;left:10px;padding:10px 12px;} .ember-map-legend {padding:11px 13px;}}
         </style>
+        {% endmacro %}
+        {% macro script(this, kwargs) %}
+        var ember_expand = L.control({position:'topright'});
+        ember_expand.onAdd = function(map) {
+          var button = L.DomUtil.create('button','ember-expand leaflet-bar');
+          button.type = 'button'; button.title = 'Expand map'; button.setAttribute('aria-label','Expand map'); button.textContent = '⛶';
+          L.DomEvent.disableClickPropagation(button);
+          button.onclick = function() {
+            var target = map.getContainer();
+            if (document.fullscreenElement) { document.exitFullscreen().catch(function(){}); }
+            else if (target.requestFullscreen) { target.requestFullscreen().catch(function(){button.title='Fullscreen is unavailable in this browser frame';}); }
+          };
+          document.addEventListener('fullscreenchange',function(){setTimeout(function(){map.invalidateSize();},150);});
+          return button;
+        };
+        ember_expand.addTo({{this._parent.get_name()}});
         {% endmacro %}
     ''')
     return legend
@@ -176,7 +262,12 @@ def show_fire_map() -> None:
                                  key='fire_month', persist_state='session')
         limit = st.toggle('Use selected area', value=False, key='fire_limit', persist_state='session',
                           help='Filter to the area applied in Calendar; otherwise show Brazil.')
+        visual_mode = st.segmented_control('Display style', ['Signal view', 'Analysis grid'],
+                                           default='Signal view', required=True, key='fire_visual_mode',
+                                           width='stretch', persist_state='session',
+                                           help='Signals mark 0.25° cell centers and encode activity by size/color. They are not individual fire locations.')
         with st.expander('Layer appearance'):
+            basemap = st.selectbox('Map background', list(MAP_BASES), key='fire_basemap', persist_state='session')
             opacity = st.slider('Layer opacity', .25, 1., .8, .05, key='fire_opacity', persist_state='session')
     region = st.session_state.get('regiao') if limit else None
     cells = (harmonized_map_cells(path, version, year, month, region) if harmonized else
@@ -194,7 +285,7 @@ def show_fire_map() -> None:
             st.markdown(f'**{product}**')
             st.caption(f'{MONTHS[month-1]} {year} · {origin}')
             st.write(f'**{len(cells):,}** active cells')
-            st.caption(f'Analysis grid 0.25° · {grid.name}')
+            st.caption('NASA FIRMS · 0.25° monthly analysis')
         st.download_button('Export map cells', export.to_csv(index=False).encode('utf-8-sig'),
                            f"{'harmonized' if harmonized else 'firms_observed'}_{year}-{month:02d}.csv", 'text/csv',
                            icon=':material/download:', key='fire_download', width='stretch', on_click='ignore')
@@ -206,12 +297,12 @@ def show_fire_map() -> None:
                 st.warning('Legacy grid: preparation differs from the final scientific series.')
             st.markdown('[NASA FIRMS source](https://firms.modaps.eosdis.nasa.gov/)')
     with st.container(horizontal=True, gap='small'):
-        for label, value, help_text in [
+        for index, (label, value, help_text) in enumerate([
             (unit, display_count(cells.hotspots.sum()), 'Activity in the displayed cells and month; not unique fires.'),
             ('Active grid cells', f'{len(cells):,}', '0.25° cells with one or more detections.'),
             ('Highest cell count', display_count(cells.hotspots.max()) if len(cells) else '—', 'Largest count in a single cell, not fire severity.'),
-        ]:
-            with st.container(border=True):
+        ]):
+            with st.container(border=True, key=f'map_stat_{index}'):
                 st.metric(label, value, help=help_text)
     area = st.session_state.get('region_label', 'Selected area') if region else 'Brazil · national view'
     with st.container(horizontal=True, vertical_alignment='center'):
@@ -223,30 +314,34 @@ def show_fire_map() -> None:
         st.warning('This month is flagged as incomplete in the scientific dataset. Its total may underestimate activity.')
     if harmonized and year < 2012:
         st.caption('Estimated from MODIS using the delivered calibration. Regional/annual comparisons are more reliable than isolated small cells.')
-    view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap', prefer_canvas=True,
-                      control_scale=True)
+    view = folium.Map(location=[-14, -52], zoom_start=4, tiles=None, prefer_canvas=True,
+                      control_scale=True, zoom_control='topright')
+    tiles, attribution = MAP_BASES[basemap]
+    if basemap == 'Street map':
+        folium.TileLayer('OpenStreetMap', name=basemap).add_to(view)
+    else:
+        folium.TileLayer(tiles=tiles, attr=attribution, name=basemap,
+                         max_zoom=18, max_native_zoom=16).add_to(view)
     view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
     view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
-    if not cells.empty:
-        folium.GeoJson(fire_features(cells, origin, year, month), name=f'NASA FIRMS · {product}',
-                       smooth_factor=0, style_function=lambda feature: {
-                           'fillColor': feature['properties']['color'], 'fillOpacity': opacity,
-                           'color': feature['properties']['color'], 'weight': .25},
-                       highlight_function=lambda _: {'weight': 2, 'color': '#FFFFFF', 'fillOpacity': .95},
-                       tooltip=folium.GeoJsonTooltip(fields=['sensor', 'period', 'hotspots', 'range'],
-                                                    aliases=['Sensor', 'UTC month', 'Hotspots in cell', 'Count range']),
-                       popup=folium.GeoJsonPopup(fields=['sensor', 'period', 'hotspots', 'range'],
-                                                aliases=['Sensor', 'UTC month', 'Hotspots', 'Count range']),
-                       ).add_to(view)
+    add_activity_layer(view, cells, origin, year, month, opacity, visual_mode)
     if region:
+        folium.GeoJson(mapping(shapely.from_wkt(region)), name='Selected area',
+                       style_function=lambda _: {'color': '#8FD5EB', 'weight': 1.5,
+                                                 'dashArray': '5 6', 'fillOpacity': 0},
+                       interactive=False).add_to(view)
         west, south, east, north = shapely.from_wkt(region).bounds
         view.fit_bounds([[south, west], [north, east]])
     folium.LayerControl(position='topright', collapsed=True).add_to(view)
-    fire_legend(harmonized).add_to(view)
-    st_folium(view, height=620, use_container_width=True,
-              key=f'fire_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
+    fire_legend(harmonized, visual_mode, f'{MONTHS[month-1]} {year} · {area}').add_to(view)
+    st_folium(view, height=650, use_container_width=True,
+              key=f'fire_atlas_v2_{visual_mode}_{basemap}_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
     st.caption(f'NASA FIRMS · {unit} per cell/month · unfilled cells are unclassified. '
                'Counts do not measure fire severity or burned area. Map dates are independent of the calendar range.')
+    if visual_mode == 'Signal view':
+        st.caption('Signals are proportional symbols at aggregate cell centers. Their displayed radius is not a fire radius or an estimate of burned area.')
+    if basemap == 'Satellite imagery':
+        st.caption('Esri imagery is background context and is not synchronized with the observation month. Activity data are from NASA FIRMS.')
     with st.expander('Inspect observed cell values'):
         st.dataframe(export, hide_index=True, alt='Scientific activity values and provenance for each mapped cell.')
 
@@ -815,6 +910,11 @@ def main() -> None:
         .st-key-observation_card {
             background:linear-gradient(135deg,#172b40,#122033);
             border-left:3px solid #62c7f2;
+        }
+        .st-key-map_stat_0,.st-key-map_stat_1,.st-key-map_stat_2 {
+            background:linear-gradient(120deg,#14283a,#101c2b);
+            border:1px solid #284154;border-radius:14px;
+            box-shadow:0 5px 20px #0002;
         }
         .st-key-brand_block h2 {letter-spacing:.15em;font-weight:750;}
         .st-key-brand_block p {letter-spacing:.12em;font-size:.72rem;}

@@ -39,6 +39,12 @@ processed sensor observations. The delivered archive ends in December 2025.
 - Check the dark catalog, compact indicators, map popup and layer controls.
   Change opacity and ensure counts do not change. On a narrow screen, confirm
   the sidebar can be collapsed and all controls remain accessible.
+- Confirm the new **Signal view** uses proportional symbols at cell centers,
+  while **Analysis grid** shows the original polygons. Counts and CSV must match
+  in both modes. Under **Layer appearance**, switch Dark atlas / Satellite
+  imagery / Street map; verify provider attribution and imagery-context notice.
+  Check the compact horizontal legend, region outline, fullscreen button and
+  small-screen layout in the browser. Fullscreen can depend on iframe/browser permissions.
 - For an empty selection, try latitude -30, longitude -35, radius 5 km.
   Confirm a clear empty-selection message and no application error.
 - Repeat at a narrow browser width or on a phone: open/close the sidebar,
