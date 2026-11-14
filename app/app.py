@@ -30,12 +30,13 @@ EXAMPLES = {
     'Acre': (-9.0, -70.0, 100.0),
 }
 FIRE_COLORS = ['#440154', '#3B528B', '#21918C', '#5EC962', '#FDE725']
-FIRE_LABELS = ['1–5', '6–20', '21–100', '101–500', 'More than 500']
+FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
 FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
 
 
 class FireLegend(MacroElement):
     rows: list[tuple[str, str]]
+    units: str
 
 
 def fire_class(count: float) -> int:
@@ -46,10 +47,10 @@ def fire_class(count: float) -> int:
 def observation_months(path: str, version: int, sensor: str) -> pd.DataFrame:
     if sensor not in FIRE_SENSORS:
         raise ValueError('Unknown satellite sensor.')
-    column = FIRE_SENSORS[sensor]
     with duckdb.connect() as con:
+        column, predicate = observation_layout(con, path, sensor)
         return con.execute(
-            f'SELECT DISTINCT ano, mes FROM read_parquet(?) WHERE {column} > 0 ORDER BY ano, mes',
+            f'SELECT DISTINCT ano, mes FROM read_parquet(?) WHERE {predicate} AND {column} > 0 ORDER BY ano, mes',
             [path]).df()
 
 
@@ -58,15 +59,37 @@ def observation_cells(path: str, version: int, sensor: str, year: int,
                       month: int, region_wkt: str | None) -> pd.DataFrame:
     if sensor not in FIRE_SENSORS:
         raise ValueError('Unknown satellite sensor.')
-    column = FIRE_SENSORS[sensor]
     with duckdb.connect() as con:
+        column, predicate = observation_layout(con, path, sensor)
         cells = con.execute(
             f'SELECT lat, lon, sum({column}) AS hotspots FROM read_parquet(?) '
-            f'WHERE ano=? AND mes=? GROUP BY lat, lon HAVING sum({column}) > 0',
+            f'WHERE ano=? AND mes=? AND {predicate} GROUP BY lat, lon HAVING sum({column}) > 0',
             [path, year, month]).df()
     if region_wkt:
         cells = cells[shapely.contains_xy(shapely.from_wkt(region_wkt),
                                          cells.lon + .125, cells.lat + .125)]
+    return cells.sort_values('hotspots', ascending=False).reset_index(drop=True)
+
+
+def observation_layout(con: duckdb.DuckDBPyConnection, path: str, sensor: str) -> tuple[str, str]:
+    columns = set(con.execute('DESCRIBE SELECT * FROM read_parquet(?)', [path]).df().column_name)
+    if {'satellite', 'n'} <= columns:
+        return 'n', ("satellite = 'S-NPP'" if sensor == 'VIIRS S-NPP' else "satellite IN ('Terra', 'Aqua')")
+    if FIRE_SENSORS[sensor] in columns:
+        return FIRE_SENSORS[sensor], 'TRUE'
+    raise ValueError('Observed grid schema is not supported.')
+
+
+@st.cache_data
+def harmonized_map_cells(path: str, version: int, year: int, month: int,
+                         region_wkt: str | None) -> pd.DataFrame:
+    with duckdb.connect() as con:
+        cells = con.execute(
+            'SELECT lat, lon, focos_harmonizados AS hotspots, fonte, dado_incompleto AS incomplete '
+            'FROM read_parquet(?) WHERE ano=? AND mes=? AND focos_harmonizados>0',
+            [path, year, month]).df()
+    if region_wkt:
+        cells = cells[shapely.contains_xy(shapely.from_wkt(region_wkt), cells.lon + .125, cells.lat + .125)]
     return cells.sort_values('hotspots', ascending=False).reset_index(drop=True)
 
 
@@ -78,16 +101,17 @@ def fire_features(cells: pd.DataFrame, sensor: str, year: int, month: int) -> di
         ring = [[west, south], [west + .25, south], [west + .25, south + .25],
                 [west, south + .25], [west, south]]
         features.append({'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [ring]},
-                         'properties': {'hotspots': int(count), 'sensor': sensor,
+                         'properties': {'hotspots': round(float(count), 2), 'sensor': sensor,
                                         'period': f'{year}-{month:02d}', 'range': FIRE_LABELS[category],
                                         'color': FIRE_COLORS[category]}})
     return {'type': 'FeatureCollection', 'features': features}
 
 
-def fire_legend() -> MacroElement:
+def fire_legend(harmonized: bool = False) -> MacroElement:
     # This is a Leaflet overlay, not a replacement for native Streamlit controls.
     legend = FireLegend()
     legend.rows = list(zip(FIRE_COLORS, FIRE_LABELS))
+    legend.units = 'VIIRS-equivalent hotspots / cell / month' if harmonized else 'Detections / cell / month'
     legend._template = Template('''
         {% macro html(this, kwargs) %}
         <div role="note" aria-label="NASA FIRMS monthly hotspot count legend"
@@ -95,7 +119,7 @@ def fire_legend() -> MacroElement:
                     background:rgba(12,24,40,.96);color:#edf3fc;padding:14px 16px;
                     border:1px solid #3b526c;border-radius:12px;font:12px system-ui,sans-serif;
                     box-shadow:0 8px 30px rgba(0,0,0,.24);max-width:180px;">
-          <strong>NASA FIRMS hotspots</strong><br>Detections / cell / month
+          <strong>NASA FIRMS activity</strong><br>{{this.units}}
           {% for color, label in this.rows %}
           <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
             <span aria-hidden="true" style="display:inline-block;width:14px;height:14px;background:{{color}};"></span>
@@ -118,20 +142,27 @@ def fire_legend() -> MacroElement:
 
 
 def show_fire_map() -> None:
-    grid = ROOT / 'data/processed/grid_monthly.parquet'
+    with st.sidebar:
+        st.markdown('#### Data catalog')
+        products = ['Harmonized activity', 'Sensor observations'] if REAL.exists() else ['Sensor observations']
+        product = st.selectbox('Data product', products, key='fire_product', persist_state='session',
+                               help='Harmonized activity uses the real scientific series. Sensor observations show the separately filtered satellite counts.')
+    harmonized = product == 'Harmonized activity'
+    processed_grid = ROOT / 'data/processed/grid_sat.parquet'
+    grid = REAL if harmonized else (processed_grid if processed_grid.exists() else ROOT / 'data/processed/grid_monthly.parquet')
     if not grid.exists():
-        st.info('The observed monthly grid has not been supplied.')
+        st.info('The selected scientific dataset has not been supplied.')
         return
     with st.sidebar:
-        st.markdown('#### Observation catalog')
-        st.caption('NASA FIRMS · historical archive')
-        sensor = st.selectbox('Sensor', list(FIRE_SENSORS), key='fire_sensor', persist_state='session',
-                              help='Sensor-specific counts. Raw MODIS and VIIRS totals are not directly comparable.')
+        st.caption('NASA FIRMS · science-team processed data')
+        sensor = ('VIIRS-equivalent activity' if harmonized else
+                  st.selectbox('Sensor', list(FIRE_SENSORS), key='fire_sensor', persist_state='session',
+                               help='Sensor-specific counts. Raw MODIS and VIIRS totals are not directly comparable.'))
     path, version = str(grid), grid.stat().st_mtime_ns
     try:
-        available = observation_months(path, version, sensor)
+        available = metadata(path, version) if harmonized else observation_months(path, version, sensor)
     except (duckdb.Error, ValueError) as error:
-        st.warning(f'The observed grid is incompatible with this layer: {error}')
+        st.warning(f'The selected dataset is incompatible with this layer: {error}')
         return
     if available.empty:
         st.info('No observed months are available for this sensor.')
@@ -148,43 +179,56 @@ def show_fire_map() -> None:
         with st.expander('Layer appearance'):
             opacity = st.slider('Layer opacity', .25, 1., .8, .05, key='fire_opacity', persist_state='session')
     region = st.session_state.get('regiao') if limit else None
-    cells = observation_cells(path, version, sensor, year, month, region)
+    cells = (harmonized_map_cells(path, version, year, month, region) if harmonized else
+             observation_cells(path, version, sensor, year, month, region))
+    origin = ('MODIS converted to VIIRS scale' if year < 2012 else 'VIIRS S-NPP observed') if harmonized else sensor
+    unit = 'VIIRS-equivalent hotspots' if harmonized else 'Observed detections'
+    display_count = lambda value: f'{value:,.2f}' if harmonized else f'{value:,.0f}'
+    incomplete = bool(available.loc[(available.ano == year) & (available.mes == month), 'incompleto'].any()) if harmonized else None
     export = cells.assign(sensor=sensor, year=year, month=month,
+                          dataset='harmonized' if harmonized else 'observed', source_file=grid.name,
                           count_range=[FIRE_LABELS[fire_class(value)] for value in cells.hotspots])
     with st.sidebar:
         with st.container(border=True, key='observation_card'):
-            st.badge('Observed archive', icon=':material/satellite_alt:', color='blue')
-            st.markdown(f'**{sensor}**')
-            st.caption(f'{MONTHS[month-1]} {year} · monthly composite of detections')
+            st.badge('Real harmonized data' if harmonized else 'Processed observations', icon=':material/satellite_alt:', color='blue')
+            st.markdown(f'**{product}**')
+            st.caption(f'{MONTHS[month-1]} {year} · {origin}')
             st.write(f'**{len(cells):,}** active cells')
-            st.caption('Analysis grid 0.25° · sensor-specific observations')
-        st.download_button('Export observation cells', export.to_csv(index=False).encode('utf-8-sig'),
-                           f'firms_observed_{FIRE_SENSORS[sensor]}_{year}-{month:02d}.csv', 'text/csv',
+            st.caption(f'Analysis grid 0.25° · {grid.name}')
+        st.download_button('Export map cells', export.to_csv(index=False).encode('utf-8-sig'),
+                           f"{'harmonized' if harmonized else 'firms_observed'}_{year}-{month:02d}.csv", 'text/csv',
                            icon=':material/download:', key='fire_download', width='stretch', on_click='ignore')
         with st.expander('Data provenance'):
-            st.caption('Real NASA FIRMS detections from the existing monthly grid. Not the calendar mock. '
-                       'Coverage and final quality review are pending. No live feed is used.')
+            st.caption(f'Source: {grid.name}. ' + ('Same scientific series used by Calendar and Trends. '
+                       if harmonized else 'Satellite/day-night counts aggregated from the science-team grid. ')
+                       + 'Calibration acceptance is a separate scientific review. No live feed is used.')
+            if not harmonized and grid.name == 'grid_monthly.parquet':
+                st.warning('Legacy grid: preparation differs from the final scientific series.')
             st.markdown('[NASA FIRMS source](https://firms.modaps.eosdis.nasa.gov/)')
     with st.container(horizontal=True, gap='small'):
         for label, value, help_text in [
-            ('Observed hotspots', f'{cells.hotspots.sum():,.0f}', 'Detected hotspots in the displayed cells and month; not unique fires.'),
+            (unit, display_count(cells.hotspots.sum()), 'Activity in the displayed cells and month; not unique fires.'),
             ('Active grid cells', f'{len(cells):,}', '0.25° cells with one or more detections.'),
-            ('Highest cell count', f'{cells.hotspots.max():,.0f}' if len(cells) else '—', 'Largest count in a single cell, not fire severity.'),
+            ('Highest cell count', display_count(cells.hotspots.max()) if len(cells) else '—', 'Largest count in a single cell, not fire severity.'),
         ]:
             with st.container(border=True):
                 st.metric(label, value, help=help_text)
     area = st.session_state.get('region_label', 'Selected area') if region else 'Brazil · national view'
     with st.container(horizontal=True, vertical_alignment='center'):
-        st.markdown(f'**{sensor}** · {MONTHS[month-1]} {year}')
+        st.markdown(f'**{origin}** · {MONTHS[month-1]} {year}')
         st.caption(area)
     if cells.empty:
         st.info('No recorded hotspots in the selected cells and month. Try another period or enlarge the area.')
+    if incomplete:
+        st.warning('This month is flagged as incomplete in the scientific dataset. Its total may underestimate activity.')
+    if harmonized and year < 2012:
+        st.caption('Estimated from MODIS using the delivered calibration. Regional/annual comparisons are more reliable than isolated small cells.')
     view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap', prefer_canvas=True,
                       control_scale=True)
     view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
     view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
     if not cells.empty:
-        folium.GeoJson(fire_features(cells, sensor, year, month), name='NASA FIRMS · fire activity',
+        folium.GeoJson(fire_features(cells, origin, year, month), name=f'NASA FIRMS · {product}',
                        smooth_factor=0, style_function=lambda feature: {
                            'fillColor': feature['properties']['color'], 'fillOpacity': opacity,
                            'color': feature['properties']['color'], 'weight': .25},
@@ -198,13 +242,13 @@ def show_fire_map() -> None:
         west, south, east, north = shapely.from_wkt(region).bounds
         view.fit_bounds([[south, west], [north, east]])
     folium.LayerControl(position='topright', collapsed=True).add_to(view)
-    fire_legend().add_to(view)
+    fire_legend(harmonized).add_to(view)
     st_folium(view, height=620, use_container_width=True,
-              key=f'fire_observations_{sensor}_{year}_{month}_{limit}_{region}', returned_objects=[])
-    st.caption('NASA FIRMS · detections per cell/month · unfilled cells are unclassified. '
+              key=f'fire_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
+    st.caption(f'NASA FIRMS · {unit} per cell/month · unfilled cells are unclassified. '
                'Counts do not measure fire severity or burned area. Map dates are independent of the calendar range.')
     with st.expander('Inspect observed cell values'):
-        st.dataframe(export, hide_index=True, alt='Observed NASA FIRMS counts for each mapped cell.')
+        st.dataframe(export, hide_index=True, alt='Scientific activity values and provenance for each mapped cell.')
 
 def data_source() -> tuple[str, int]:
     path = REAL if REAL.exists() else MOCK
@@ -493,8 +537,63 @@ def show_trends(series: pd.DataFrame, prefix: str) -> None:
                     config={'displaylogo': False})
 
 
-def show_methodology(is_mock: bool) -> None:
+@st.cache_data
+def read_metrics(path: str, version: int) -> dict:
+    data = json.loads(Path(path).read_text(encoding='utf-8'))
+    if not isinstance(data, dict):
+        raise ValueError('Metrics must be a JSON object.')
+    return data
+
+
+def show_validation_summary(data: dict) -> None:
+    proof = data.get('prova_harmonizacao', {})
+    final = proof.get('nacional_loyo_metodo_final', {})
+    if final:
+        st.subheader('Delivered method · validation summary')
+        annual = next((row for row in proof.get('por_escala_de_tempo_2deg', []) if row.get('escala') == 'ano'), {})
+        with st.container(horizontal=True):
+            st.metric('National monthly correlation', f"{final['correlacao_mensal']:.3f}")
+            st.metric('Mean annual absolute error · national', f"{final['erro_anual_medio_abs'] * 100:.2f}%")
+            st.metric('Annual agreement within ±20% · 2° regions', annual.get('dentro de ±20%', 'Not reported'))
+        st.caption('Final-method results reported by the science team. Leave-one-year-out, 2012–2021. '
+                   'Annual regional agreement is not the cell-scale peak-month acceptance criterion.')
+        rows = [{'Region size': r.get('tamanho da região'), 'Median monthly difference': r.get('convertido: diferença mediana'),
+                 'Months within ±20%': r.get('convertido: dentro de ±20%'), 'Correlation': r.get('correlação')}
+                for r in proof.get('por_tamanho_regiao', [])]
+        if rows:
+            st.dataframe(pd.DataFrame(rows), hide_index=True,
+                         alt='Final-method agreement by region size, restricted to the cases defined by the science team.')
+        st.caption('Regional monthly comparisons above use cases with at least 100 observed VIIRS hotspots. '
+                   'They are aggregate comparisons, not individual-fire matching.')
+    acceptance = data.get('aceite_A2', {})
+    if acceptance.get('passa') is False:
+        cell = data.get('loyo_2012_2021', {}).get('celula', {})
+        peak = cell.get('acerto_mes_pico')
+        peak_text = f'{peak * 100:.1f}%' if isinstance(peak, (int, float)) else 'not reported'
+        qualifier = 'version-1 evaluation' if data.get('nota') else 'reported evaluation'
+        st.warning(f'Cell-scale acceptance is pending: peak-month accuracy is {peak_text} in the {qualifier}, '
+                   'below the 80% target. The official cell-scale evaluation must be rerun for the final method. '
+                   'Regional agreement does not replace this requirement.')
+
+
+def show_methodology(is_mock: bool, coverage: pd.DataFrame | None = None) -> None:
     st.subheader('Methodology')
+    if coverage is not None:
+        first, last = coverage.iloc[0], coverage.iloc[-1]
+        st.info(f'Delivered archive: {int(first.ano)}-{int(first.mes):02d} to {int(last.ano)}-{int(last.mes):02d}. '
+                'References to a 2026 API extension in the document describe planned work; it is not included in this delivery.'
+                if int(last.ano) < 2026 else 'Archive includes the delivered current-year extension; incomplete months remain provisional.')
+    metrics = ROOT / 'reports/metrics.json'
+    if metrics.exists():
+        try:
+            data = read_metrics(str(metrics), metrics.stat().st_mtime_ns)
+            show_validation_summary(data)
+            with st.expander('Full metrics · includes the earlier method and version notes'):
+                st.json(data)
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            st.warning(f'Validation metrics could not be loaded: {error}')
+    else:
+        st.caption('Validation metrics pending — no accuracy claims are made for the mock.')
     doc = ROOT / 'docs/metodologia.md'
     if doc.exists():
         st.markdown(doc.read_text(encoding='utf-8'))
@@ -512,15 +611,13 @@ def show_methodology(is_mock: bool) -> None:
                 'They are descriptive categories, not fire predictions.\n\n'
                 '**Coverage:** missing cell-month records are treated as zero within the source coverage, as agreed in the data contract. '
                 'Entire missing observation months require additional coverage metadata. Hotspots do not measure burned area or unique fires.')
-    metrics = ROOT / 'reports/metrics.json'
-    if metrics.exists():
-        try:
-            st.json(json.loads(metrics.read_text(encoding='utf-8')))
-        except (OSError, ValueError) as error:
-            st.warning(f'Validation metrics could not be loaded: {error}')
-    else:
-        st.caption('Validation metrics pending — no accuracy claims are made for the mock.')
-    figures = [('harmonizado_anual.png', 'Harmonization comparison supplied by the science team'),
+    for filename, description in [('prova_antes_depois.png', 'Out-of-sample comparison before and after conversion'),
+                                  ('prova_pantanal.png', 'Pantanal: converted MODIS versus observed VIIRS'),
+                                  ('harmonizado_anual.png', 'Delivered harmonized annual series')]:
+        image = ROOT / 'reports' / filename
+        if image.exists():
+            st.image(str(image), caption=description, alt=description, width='stretch')
+    figures = [
                ('v2_serie_anual.png', 'Exploratory raw counts by sensor; not a harmonized result'),
                ('v6_mapa_k.png', 'Exploratory spatial variation in sensor count ratios'),
                ('b4_curva_deteccao.png', 'Exploratory detection analysis')]
@@ -747,15 +844,17 @@ def main() -> None:
             st.caption('EARTH FIRE OBSERVATORY')
         mode = area_controls(first_year, last_year, expanded=active_view in ('Calendar', 'Trends'))
         with st.expander('Science status'):
-            st.badge('Observed FIRMS grid available', color='blue')
-            st.badge('Calendar mock' if is_mock else 'Harmonized dataset supplied', color='orange' if is_mock else 'green')
-            st.caption('Historical observations. Final calibration, quality review and public deployment remain separate deliverables.')
+            st.badge('Processed FIRMS grid available', color='blue')
+            st.badge('Calendar mock' if is_mock else 'Real harmonized series loaded', color='orange' if is_mock else 'blue')
+            st.caption(f"{Path(path).name} · {first_year}–{last_year} · {int(coverage.incompleto.sum())} incomplete months")
+            st.badge('Scientific acceptance under review', color='orange')
+            st.caption('Scientific artifacts have been delivered. Official final-method cell-scale validation and public deployment remain pending.')
     with st.container(horizontal=True, vertical_alignment='center'):
         with st.container(width='stretch'):
             st.subheader('Fire activity workspace')
             st.caption('NASA FIRMS observations · Brazil · Historical patterns')
         st.badge('Archive', icon=':material/satellite_alt:', color='blue')
-        st.badge('Calendar · mock' if is_mock else 'Harmonized calendar', color='orange' if is_mock else 'green')
+        st.badge('Calendar · mock' if is_mock else f'Real data · {first_year}–{last_year}', color='orange' if is_mock else 'blue')
     fire_tab, calendar_tab, trends, methodology, about = st.tabs(
         ['Fire map', 'Calendar', 'Trends', 'Methodology', 'About'], default='Fire map',
         key='main_tabs', on_change='rerun')
@@ -788,20 +887,26 @@ def main() -> None:
             show_trends(series, 'MOCK · ' if is_mock else '')
     with methodology:
         if methodology.open:
-            show_methodology(is_mock)
+            show_methodology(is_mock, coverage)
     with about:
         if about.open:
             st.subheader('A consistent view of burning activity')
             st.write('EMBER is a NASA Space Apps prototype for exploring where and when satellite-detected burning activity occurs.')
-            st.markdown('**Observed map:** sensor-specific NASA FIRMS detections.\n\n'
-                        '**Calendar:** harmonized-series interface, currently a clearly labeled development mock until final data arrive.\n\n'
+            calendar_status = ('Development mock, with a provisional conversion.' if is_mock else
+                               f'Real harmonized series delivered by the science team, {first_year}–{last_year}. '
+                               'MODIS converted before 2012; observed S-NPP thereafter.')
+            st.markdown('**Map:** real harmonized activity or separately identified sensor observations from the processed grid.\n\n'
+                        f'**Calendar:** {calendar_status}\n\n'
                         '**Built for:** fire managers, researchers and land managers exploring historical patterns.')
+            last = coverage.iloc[-1]
+            st.caption(f'The delivered archive ends in {MONTHS[int(last.mes)-1]} {int(last.ano)}. It is not a real-time emergency feed. '
+                       'The final-method cell-scale acceptance criterion is still under review.')
             st.markdown('[NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · [Project repository](https://github.com/vagnermelo20/NasaAppChallenge)')
     st.caption('Hotspots are satellite detections, not number of fires or burned area.')
     if elapsed is not None:
         st.caption(f"Calendar source: {Path(path).name} · Query {elapsed:.3f} s · UTC months · 0.25° grid")
     else:
-        st.caption('NASA FIRMS historical observations · Sensor-specific counts · Final scientific validation pending')
+        st.caption('NASA FIRMS · Harmonized activity and processed sensor observations · Scientific acceptance under review')
 
 
 if __name__ == '__main__':

@@ -74,10 +74,20 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
 - [x] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
-- [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A — **dado real entregue por A; ver `specs/handoff_A_para_B.md`**
+- [x] **B11** Integrar `harmonized.parquet` real, grade nova, metadados e provas entregues por A; revisão visual continua em B10 · ver `specs/handoff_A_para_B.md`
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
+
+Integração B11: Fire map abre na série real `harmonized.parquet` (2001–2025),
+preserva decimais antes de 2012 e sinaliza meses incompletos. O produto alternativo
+Sensor observations agrega `grid_sat.parquet` por satélite/dia-noite, com o
+pré-processamento científico novo; a grade antiga fica apenas como fallback explícito.
+Calendário/Trends/CSV usam a mesma série. About e README refletem dados reais.
+Methodology destaca `prova_harmonizacao`, as três figuras principais e o A2/A14 pendente.
+Validação: 21 testes passaram; mapa e calendário coincidem em set/2010;
+VIIRS observado e harmonizado coincidem em set/2024 (598.825). Não houve alteração
+dos dados/modelos da Pessoa A. 2026, publicação e validação científica final continuam pendentes.
 
 Validação da entrega B3–B5/B8 com mock: 7 testes em `app/test_delivery.py`;
 consulta fria do Pantanal (2001–2025, 300 meses) em 0,247 s, soma conferida por SQL independente;

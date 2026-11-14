@@ -7,10 +7,12 @@ selected region. It combines a monthly calendar, historical comparisons,
 seasonality charts and downloadable data, with the goal of comparing satellite
 records on a consistent VIIRS-equivalent scale.
 
-**Status:** the application runs locally with a clearly labeled development
-mock. The final harmonized dataset and scientific validation are pending from
-the data team. Public deployment is on hold until the real data are available.
-No public application URL is available yet.
+**Status:** the application now uses the delivered real harmonized dataset:
+1,212,739 cell-month records for 2001–2025, with 15 incomplete months flagged.
+The map, calendar, trends and CSV exports are connected to this delivery.
+Official cell-scale validation of the final method remains under review; the
+version-1 peak-month test did not meet the 80% target. Data for 2026 and public
+deployment are still pending. No public application URL is recorded yet.
 
 ## Why harmonization matters
 
@@ -31,12 +33,12 @@ Trends and Methodology load their content only when selected.
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
 - Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.
-- View **Fire map**, a classified NASA FIRMS observation layer with fixed count
-  ranges, a map legend, sensor/month controls, per-cell tooltips and a cell CSV.
+- View **Fire map** using real harmonized activity or processed sensor observations,
+  with fixed color ranges, a map legend, period controls, tooltips and cell CSV.
 - Compare the latest available month with earlier complete years.
 - Inspect annual activity and monthly seasonality, with incomplete periods identified.
 - Download the monthly regional CSV or export a PNG with the chart camera button.
-- Review methodology, exploratory figures and validation metrics when supplied.
+- Review the delivered methodology, final-method evidence and versioned validation metrics.
 
 Drawings are drafts until **Apply map selection** is clicked. Coordinate filters
 are applied with **Update**; their map preview is optional. Cell values can be
@@ -51,7 +53,6 @@ Run all commands from the repository root. Development was tested with Python 3.
 ```powershell
 py -3.13 -m venv .venv
 .venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe app/make_mock.py
 .venv/Scripts/python.exe -m streamlit run app/app.py
 ```
 
@@ -60,32 +61,38 @@ py -3.13 -m venv .venv
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python app/make_mock.py
 .venv/bin/python -m streamlit run app/app.py
 ```
 
-Open `http://localhost:8501`. The tracked `grid_monthly.parquet` is sufficient to
-generate the development mock; downloading the raw archive is not necessary
-for front-end development.
+Open `http://localhost:8501`. The real scientific files are tracked in the
+repository, so no mock generation or raw-archive download is needed to run the app.
+The optional `app/make_mock.py` remains available for development without the
+real file; its output is ignored whenever the real harmonized file exists.
 
 The mock generator uses MODIS × 3.8 before 2012 and VIIRS counts thereafter.
 This provisional factor is **not validated harmonization**. The mock is local,
 ignored by Git, and identified in the interface, chart titles and CSV exports.
 
-The **Fire map** tab reads the separate, observed counts in the tracked monthly
-grid (`n_modis` / `n_viirs`), not the calendar mock. Its fixed Viridis classes are
-1–5, 6–20, 21–100, 101–500 and more than 500 detections per cell/month. These are
-count ranges, not fire severity or burned-area classes. Its date controls are
-independent of the calendar range. Raw MODIS and VIIRS counts are not directly
-comparable, and final coverage/quality review remains pending. Unfilled cells
-are unclassified, not proof of no fire. Publishing still waits for real harmonized data.
+The **Fire map** opens on `harmonized.parquet`, the same series used by Calendar
+and Trends. It preserves fractional converted values and warns about incomplete
+months. The alternative **Sensor observations** product aggregates `n` by
+satellite/day-night from `grid_sat.parquet`, using the science team's preprocessing.
+VIIRS observations and the post-2012 harmonized series therefore agree for the
+same cells and month. The legacy grid is used only if the new satellite grid is
+absent, with an explicit warning.
+
+Fixed Viridis ranges are >0–5, >5–20, >20–100, >100–500 and more than 500 activity
+units per cell/month. The legend identifies observed detections versus
+VIIRS-equivalent units. These are not severity or burned-area classes. Map dates
+are independent of calendar years; sensor-specific MODIS and VIIRS counts are
+not directly comparable. Unfilled cells are unclassified, not proof of no fire.
 
 When `data/processed/harmonized.parquet` exists, the app prioritizes it over the
 mock and checks its basic contract. An invalid real file is reported rather
 than silently replaced by mock data. A valid file alone does not establish
 scientific acceptance; the science team must confirm its calibration and validation.
 
-## Data and planned scientific method
+## Data and delivered scientific method
 
 Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/), including the
 [historical archive](https://firms.modaps.eosdis.nasa.gov/download/).
@@ -93,13 +100,15 @@ The existing exploratory pipeline uses MODIS Collection 6.1 and VIIRS S-NPP
 375 m country files for Brazil, 2001–2025. Extending the dataset to 2026 is a
 separate data-team task.
 
-The planned method in [specs/plan.md](specs/plan.md) calibrates Terra and Aqua
+The delivered method in [docs/metodologia.md](docs/metodologia.md) calibrates Terra and Aqua
 separately against S-NPP during 2012–2021, by 5° block and calendar month,
-with a national-month fallback for groups with few MODIS detections. It converts
-pre-2012 MODIS activity to the VIIRS scale, accounting for the Terra-only period,
-and uses observed VIIRS activity from 2012 onward. Out-of-sample validation,
-coverage flags and the final static-source mask remain the science team's work.
-No accuracy targets are claimed as achieved by the current mock.
+with a national fallback and a 2° local refinement shrunk toward the block value.
+It combines Terra and Aqua by inverse-variance weighting, accounting for the
+Terra-only period, and uses processed S-NPP observations from 2012 onward.
+The static-source mask and incomplete-month flags are included in the delivery.
+Methodology highlights `prova_harmonizacao`, the final-method evidence, separately
+from version-1 metrics. National correlation is reported as 0.998; these aggregate
+results do not replace the pending final-method cell-scale peak-month criterion.
 
 ### Input contract
 

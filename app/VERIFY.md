@@ -3,24 +3,25 @@
 Run from the repository root:
 
 ```powershell
-.venv/Scripts/python.exe app/make_mock.py
 .venv/Scripts/python.exe -m streamlit run app/app.py
 ```
 
-The mock must remain untracked. It is not a validated harmonized product.
+The real scientific files are now delivered. Mock generation is optional and
+the mock must remain untracked; the app always prioritizes the real file.
 
 ## Browser checklist
 
 The new EMBER workspace opens on Fire map. Observation sensor, period, layer
 opacity and CSV export are in the sidebar. Expand **Area & calendar filters**
-to change the area, use examples, or set calendar years. The calendar mock
-status remains visible separately from the observed NASA map.
+to change the area, use examples, or set calendar years. The source card must
+show `harmonized.parquet` for the harmonized product and `grid_sat.parquet` for
+processed sensor observations. The delivered archive ends in December 2025.
 
 - Open `http://localhost:8501` and refresh after code changes.
 - Under **Try an example region**, apply Pantanal, Matopiba and Acre. Each is
   an illustrative 100 km circle, not an official boundary.
 - Confirm that the region label, selected cell count, calendar and downloaded
-  CSV change together. CSV `dataset` must say `mock` while the mock is used.
+  CSV change together. CSV `dataset` must say `harmonized` for the real calendar.
 - In **Draw on map**, draw/edit/delete a rectangle. Changes stay pending until
   **Apply map selection** is clicked. Confirm selection persists across tabs.
 - Toggle anomalies and cell values. Months without an earlier complete-year
@@ -32,7 +33,9 @@ status remains visible separately from the observed NASA map.
   legend. Hover a cell and verify its sensor, UTC month and detection count.
   Change sensor/month and compare the displayed total with the observation CSV.
   Toggle **Limit to the applied region** and verify the spatial filter.
-  This layer uses observed sensor-specific counts, not the harmonized mock.
+  Switch between Harmonized activity and Sensor observations. For VIIRS after
+  2012, matching area/month totals must agree. Check converted fractional values
+  before 2012 and the incomplete-data warning for September 2024.
 - Check the dark catalog, compact indicators, map popup and layer controls.
   Change opacity and ensure counts do not change. On a narrow screen, confirm
   the sidebar can be collapsed and all controls remain accessible.
@@ -61,14 +64,14 @@ until the files and results have been reviewed.
 
 ## Publication readiness
 
-The current repository does not include the local mock or the final real
-dataset. A fresh deployment therefore needs the real file or a deliberately
-generated, clearly labeled demo dataset before it can serve calendars.
+The repository now includes the real harmonized dataset and processed satellite
+grid. A fresh deployment can use them directly without generating a mock.
 The entry point is `app/app.py`; dependencies are in `requirements.txt`.
 Keep credentials and `.venv` out of the repository. Public hosting,
 submission, final README and video remain the joint J1–J4 tasks.
 
-The team chose to wait for the real dataset before publishing. Run
+The real-data handoff has arrived; scientific acceptance, visual review and
+publication are still separate steps. Run
 `.venv/Scripts/python.exe -m app.check_release` to list missing or invalid
 scientific artifacts without writing files. Exit status 2 means the handoff is
 incomplete; status 0 means ready for review, not scientifically certified.

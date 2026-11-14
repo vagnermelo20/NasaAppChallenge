@@ -18,7 +18,7 @@ from app.check_release import inspect_release
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      radius_polygon, fire_class, fire_features, fire_legend,
-                     observation_cells, observation_months)
+                     observation_cells, observation_months, harmonized_map_cells)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -52,6 +52,33 @@ class ReleaseReadinessTests(unittest.TestCase):
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_scientific_satellite_grid_aggregates_passes_without_mixing_sensors(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'grid_sat.parquet'
+            pd.DataFrame({'lat': [-18.25] * 4, 'lon': [-56.5] * 4, 'ano': [2024] * 4,
+                          'mes': [9] * 4, 'satellite': ['S-NPP', 'S-NPP', 'Terra', 'Aqua'],
+                          'daynight': ['D', 'N', 'D', 'D'], 'n': [10, 20, 5, 7]}).to_parquet(path)
+            version = path.stat().st_mtime_ns
+            viirs = observation_cells(str(path), version, 'VIIRS S-NPP', 2024, 9, None)
+            modis = observation_cells(str(path), version, 'MODIS Terra + Aqua', 2024, 9, None)
+            self.assertEqual(viirs.hotspots.sum(), 30)
+            self.assertEqual(modis.hotspots.sum(), 12)
+            self.assertEqual(len(observation_months(str(path), version, 'VIIRS S-NPP')), 1)
+
+    def test_harmonized_map_preserves_fractional_values_and_incomplete_flag(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'harmonized.parquet'
+            pd.DataFrame({'lat': [-18.25, -18.25], 'lon': [-56.5, -56.], 'ano': [2010, 2010],
+                          'mes': [9, 9], 'focos_harmonizados': [5.75, 100.25],
+                          'fonte': ['modis_convertido'] * 2, 'dado_incompleto': [True] * 2}).to_parquet(path)
+            cells = harmonized_map_cells(str(path), path.stat().st_mtime_ns, 2010, 9, None)
+            self.assertEqual(cells.hotspots.sum(), 106.)
+            self.assertTrue(cells.incomplete.all())
+            features = fire_features(cells, 'MODIS converted', 2010, 9)['features']
+            self.assertEqual(features[0]['properties']['hotspots'], 100.25)
+            self.assertEqual(features[1]['properties']['hotspots'], 5.75)
+            self.assertEqual(features[1]['properties']['range'], '>5–20')
+
     def test_fire_classes_and_cell_geometry(self):
         self.assertEqual([fire_class(value) for value in [1, 5, 6, 20, 21, 100, 101, 500, 501]],
                          [0, 0, 1, 1, 2, 2, 3, 3, 4])
@@ -222,9 +249,12 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(app.tabs[0].label, 'Fire map')
             self.assertEqual(len(app.get('plotly_chart')), 0)
-            self.assertEqual(app.selectbox(key='fire_sensor').value, 'VIIRS S-NPP')
+            self.assertEqual(app.selectbox(key='fire_product').value, 'Harmonized activity')
             self.assertEqual(app.slider(key='fire_opacity').value, .8)
             self.assertEqual(len(app.get('download_button')), 1)
+            app.selectbox(key='fire_product').select('Sensor observations').run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.selectbox(key='fire_sensor').value, 'VIIRS S-NPP')
 
     def test_example_regions_and_empty_selection(self):
         with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
