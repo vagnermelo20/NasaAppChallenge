@@ -6,6 +6,7 @@ import io
 import math
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 from unittest.mock import patch
 
@@ -19,7 +20,8 @@ from app.app import (anomaly_values, cached_series, calendar_figure, complete_mo
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      radius_polygon, fire_class, fire_features, fire_legend,
                      observation_cells, observation_months, harmonized_map_cells,
-                     fire_signal_features, add_activity_layer, hotspot_locations, add_hotspot_locations)
+                     fire_signal_features, add_activity_layer, hotspot_locations, add_hotspot_locations,
+                     search_hotspots, point_export, interval_coverage, sensor_interval_coverage)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -53,6 +55,51 @@ class ReleaseReadinessTests(unittest.TestCase):
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_exact_date_search_crosses_years_filters_polygon_and_never_hides_limit(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            files = []
+            for year, dates in [(2024, ['2024-12-30', '2024-12-31']),
+                                (2025, ['2025-01-01', '2025-01-02'])]:
+                path = Path(temporary) / f'{year}.parquet'
+                pd.DataFrame({'lat': [-18.1, -18.9], 'lon': [-56.1, -56.9],
+                              'data': pd.to_datetime(dates), 'hora_utc': [5, 1329],
+                              'satelite': ['S-NPP', 'Terra'], 'frp': [2., 3.],
+                              'daynight': ['N', 'D'], 'peso_harmonizado': [1., 2.25]}).to_parquet(path)
+                files.append((str(path), path.stat().st_mtime_ns))
+            points, exceeded = search_hotspots(tuple(files), date(2024, 12, 31), date(2025, 1, 1),
+                                               'All available sensors', None)
+            self.assertFalse(exceeded)
+            self.assertEqual(len(points), 2)
+            self.assertEqual(points.peso_harmonizado.sum(), 3.25)
+            export = point_export(points)
+            self.assertEqual(export.time_utc.tolist(), ['13:29', '00:05'])
+            decoded = pd.read_csv(io.StringIO(export.to_csv(index=False)))
+            self.assertEqual(decoded.harmonized_weight.sum(), 3.25)
+            clipped, _ = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
+                                         'VIIRS S-NPP', box(-56.5, -18.5, -56, -18).wkt)
+            self.assertEqual(len(clipped), 2)
+            partial, exceeded = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
+                                                'All available sensors', None, limit=2)
+            self.assertTrue(exceeded)
+            self.assertEqual(len(partial), 2)
+            empty, _ = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
+                                       'VIIRS S-NPP', box(0, 0, 1, 1).wkt)
+            self.assertTrue(point_export(empty).empty)
+            for start, end in [(date(2024, 1, 1), date(2024, 4, 2)),
+                               (date(2024, 2, 1), date(2024, 1, 1))]:
+                with self.assertRaises(ValueError):
+                    search_hotspots(tuple(files), start, end, 'All available sensors', None)
+
+    def test_exact_interval_coverage_does_not_treat_missing_months_as_zero(self):
+        coverage = pd.DataFrame({'ano': [2026, 2026], 'mes': [10, 11], 'incompleto': [False, True]})
+        self.assertEqual(interval_coverage(date(2026, 10, 1), date(2026, 10, 7), coverage),
+                         'No monthly completeness flag')
+        self.assertIn('Provisional', interval_coverage(date(2026, 10, 30), date(2026, 11, 2), coverage))
+        self.assertIn('Outside', interval_coverage(date(2026, 12, 1), date(2026, 12, 2), coverage))
+        self.assertFalse(sensor_interval_coverage('VIIRS S-NPP', date(2011, 12, 31), date(2012, 1, 1)))
+        self.assertFalse(sensor_interval_coverage('MODIS Terra + Aqua', date(2012, 1, 1), date(2012, 1, 2)))
+        self.assertTrue(sensor_interval_coverage('All available sensors', date(2011, 12, 31), date(2012, 1, 1)))
+
     def test_hotspot_locations_filter_date_sensor_and_exact_coordinates(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'points.parquet'
@@ -371,7 +418,7 @@ class ApplicationTests(unittest.TestCase):
             app.session_state['main_tabs'] = 'Calendar'
             app.run()
             self.assertFalse(app.exception)
-            self.assertEqual(len(app.tabs), 5)
+            self.assertEqual(len(app.tabs), 6)
             app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
             app.slider(key='year_range').set_value((2015, 2020))
             app.number_input(key='radius').set_value(100.)

@@ -79,6 +79,23 @@ until the files and results have been reviewed.
 
 ## Publication readiness
 
+### Exact-date hotspot search
+
+- Open **Hotspot search**, leave Oct 1–7, 2026 and submit. Brazil should return
+  39,965 detections; download the CSV and check dates, UTC time (HH:MM), satellite,
+  coordinates, FRP and harmonized weights against the table.
+- Apply an example area in Calendar, then enable **Use applied calendar area**
+  and submit again. The applied-search label must identify the area.
+- Query Sep 1–30, 2024 nationally: the app must request a narrower selection
+  instead of displaying/downloading a partial result above 200,000 detections.
+- Try more than 92 days, a one-date selection, an empty region and Nov 2026.
+  Confirm clear validation/coverage messages and no crash.
+- Compare dates before/after 2012: comparisons use weights and label MODIS as
+  approximate. Incomplete periods have no numerical comparison. A Feb 29 query
+  compared with a non-leap year is unavailable, not silently shifted.
+- The monthly uncertainty calibration is not a calibrated confidence interval
+  for exact-day comparisons; do not present it as one.
+
 The repository now includes the real harmonized dataset and processed satellite
 grid. A fresh deployment can use them directly without generating a mock.
 The entry point is `app/app.py`; dependencies are in `requirements.txt`.

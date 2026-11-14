@@ -40,6 +40,16 @@ map are alternative backgrounds, with provider attribution. Esri background
 imagery is context and is not synchronized to the NASA observation date.
 
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
+- **Hotspot search:** query an inclusive UTC date interval (up to 92 days),
+  filter by sensor/applied calendar area, inspect detections and export a CSV
+  (date, time UTC, coordinates, satellite, FRP in MW and harmonized weight).
+  Queries above 200,000 detections require a narrower selection; no partial CSV
+  is offered. Compare the same dates in up to six start years using summed
+  harmonized weights. Before 2012 these exact-day comparisons are approximate;
+  the monthly calibration uncertainty is not an exact-day confidence interval.
+  Incomplete intervals are excluded from numerical comparisons; February 29
+  is never silently moved in non-leap years. The archive follows MODIS before
+  2012 and S-NPP afterward, rather than retaining every sensor in every year.
 - Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.
 - View **Fire map** using real harmonized activity or processed sensor observations,

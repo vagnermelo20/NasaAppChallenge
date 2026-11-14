@@ -2,7 +2,7 @@
 import calendar
 import json
 import math
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from time import perf_counter
 from zoneinfo import ZoneInfo
@@ -153,6 +153,172 @@ def add_hotspot_locations(view: folium.Map, points: pd.DataFrame, opacity: float
                        marker=folium.CircleMarker(radius=1.6, stroke=False, fill=True,
                                                   fill_color='#FF241C', fill_opacity=opacity),
                        interactive=False).add_to(view)
+
+
+@st.cache_data
+def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
+                    sensor: str, region_wkt: str | None, limit: int = 200_000) -> tuple[pd.DataFrame, bool]:
+    if end < start or (end - start).days + 1 > 92:
+        raise ValueError('Choose an inclusive interval of 1–92 days.')
+    if not files:
+        raise ValueError('No point files are available for this interval.')
+    predicates = {'All available sensors': '', 'VIIRS S-NPP': " AND satelite='S-NPP'",
+                  'MODIS Terra + Aqua': " AND satelite IN ('Terra','Aqua')"}
+    if sensor not in predicates:
+        raise ValueError('Unknown satellite sensor.')
+    columns = ['lat', 'lon', 'data', 'hora_utc', 'satelite', 'frp', 'daynight', 'peso_harmonizado']
+    sql = 'SELECT ' + ','.join(columns) + ' FROM read_parquet(?) WHERE data BETWEEN ? AND ?' + predicates[sensor]
+    args: list = [[p for p, _ in files], start, end]
+    geometry = shapely.from_wkt(region_wkt) if region_wkt else None
+    if geometry is not None:
+        west, south, east, north = geometry.bounds
+        sql += ' AND lon BETWEEN ? AND ? AND lat BETWEEN ? AND ?'
+        args.extend([west, east, south, north])
+    chunks, count = [], 0
+    with duckdb.connect() as con:
+        cursor = con.execute(sql + ' ORDER BY data, hora_utc, satelite, lat, lon', args)
+        while rows := cursor.fetchmany(10_000):
+            batch = pd.DataFrame(rows, columns=columns)
+            if geometry is not None:
+                batch = batch[shapely.contains_xy(geometry, batch.lon, batch.lat)]
+            batch = batch.iloc[:limit + 1 - count]
+            chunks.append(batch)
+            count += len(batch)
+            if count > limit:
+                break
+    points = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=columns)
+    return points.iloc[:limit].copy(), count > limit
+
+
+def point_export(points: pd.DataFrame) -> pd.DataFrame:
+    result = points.rename(columns={'data': 'date_utc', 'hora_utc': 'time_utc', 'satelite': 'satellite',
+                                    'lat': 'latitude', 'lon': 'longitude', 'frp': 'frp_mw',
+                                    'peso_harmonizado': 'harmonized_weight'}).copy()
+    result['date_utc'] = pd.to_datetime(result.date_utc).dt.strftime('%Y-%m-%d')
+    result['time_utc'] = result.time_utc.map(lambda value: f'{int(value)//100:02d}:{int(value)%100:02d}')
+    result['record_type'] = 'Observation by sensor'
+    return result
+
+
+def point_files(start: date, end: date) -> tuple[tuple[str, int], ...]:
+    files = [ROOT / f'data/processed/focos/focos_{year}.parquet' for year in range(start.year, end.year + 1)]
+    if any(not p.exists() for p in files):
+        raise ValueError('A point file is missing for one of the requested years.')
+    return tuple((str(p), p.stat().st_mtime_ns) for p in files)
+
+
+def interval_coverage(start: date, end: date, coverage: pd.DataFrame) -> str:
+    months = pd.period_range(start, end, freq='M')
+    for month in months:
+        row = coverage[(coverage.ano == month.year) & (coverage.mes == month.month)]
+        if row.empty:
+            return 'Outside available monthly coverage'
+    if any(bool(coverage.loc[(coverage.ano == month.year) & (coverage.mes == month.month),
+                              'incompleto'].any()) for month in months):
+        return 'Provisional · intersects an incomplete month'
+    return 'No monthly completeness flag'
+
+
+def sensor_interval_coverage(sensor: str, start: date, end: date) -> bool:
+    # The point archive follows the scientific series, not an all-sensor archive.
+    if sensor == 'VIIRS S-NPP':
+        return start >= date(2012, 1, 1)
+    if sensor == 'MODIS Terra + Aqua':
+        return end < date(2012, 1, 1)
+    return True
+
+
+def show_hotspot_search(coverage: pd.DataFrame) -> None:
+    st.subheader('Search hotspot observations')
+    st.caption('Observation by sensor · exact UTC dates · up to 92 days and 200,000 detections. '
+               'Raw sensor counts are not directly comparable across years.')
+    st.caption('This science archive contains MODIS before 2012 and S-NPP from 2012 onward. '
+               'Select All available sensors to compare across that transition.')
+    first, last = coverage.iloc[0], coverage.iloc[-1]
+    minimum = date(int(first.ano), int(first.mes), 1)
+    maximum = date(int(last.ano), int(last.mes), calendar.monthrange(int(last.ano), int(last.mes))[1])
+    latest_complete = coverage[~coverage.incompleto].iloc[-1] if (~coverage.incompleto).any() else last
+    initial = date(int(latest_complete.ano), int(latest_complete.mes), 1)
+    with st.form('hotspot_search_form'):
+        dates = st.date_input('Date interval · UTC (inclusive)', (initial, initial + timedelta(days=6)),
+                              min_value=minimum, max_value=maximum, key='search_dates')
+        sensor = st.selectbox('Observation sensor', ['All available sensors', *FIRE_SENSORS], key='search_sensor')
+        use_region = st.checkbox('Use applied calendar area', value=st.session_state.get('regiao') is not None,
+                                 key='search_use_region')
+        available_years = sorted(int(y) for y in coverage.ano.unique())
+        compare = st.multiselect('Compare the same dates in years (up to 6)', available_years,
+                                 default=available_years[-3:], max_selections=6, key='search_years',
+                                 help='The year applies to the interval start; intervals may cross New Year.')
+        submitted = st.form_submit_button('Search observations', key='search_submit', type='primary')
+    if submitted:
+        if len(dates) != 2 or dates[1] < dates[0] or (dates[1] - dates[0]).days + 1 > 92:
+            st.error('Choose both dates, spanning 1–92 days inclusive.')
+            st.session_state.pop('hotspot_query', None)
+        else:
+            st.session_state['hotspot_query'] = (dates[0], dates[1], sensor,
+                                                st.session_state.get('regiao') if use_region else None,
+                                                tuple(compare), st.session_state.get('region_label') if use_region else 'Brazil')
+    query = st.session_state.get('hotspot_query')
+    if not query:
+        st.info('Choose dates and a sensor, then search. Apply an area in Calendar to restrict the query.')
+        return
+    start, end, sensor, region, years, area = query
+    st.caption(f'Applied search: {start.isoformat()} to {end.isoformat()} · {sensor} · {area}')
+    begin = perf_counter()
+    if not sensor_interval_coverage(sensor, start, end):
+        st.warning('The selected sensor does not cover this entire interval in the science archive. '
+                   'Select All available sensors or change the dates.')
+        return
+    try:
+        points, exceeded = search_hotspots(point_files(start, end), start, end, sensor, region)
+    except (ValueError, duckdb.Error) as error:
+        st.warning(str(error))
+        return
+    if exceeded:
+        st.warning('More than 200,000 detections match. Narrow the dates, sensor or area. '
+                   'No partial table, CSV or comparison is presented.')
+        return
+    status = interval_coverage(start, end, coverage)
+    if status != 'No monthly completeness flag':
+        st.warning(status + '. Daily completeness is not established by the monthly flags.')
+    st.caption(f'{len(points):,} detections · Query {perf_counter()-begin:.3f} s · {status}. '
+               'Region filtering uses detection coordinates, rather than grid-cell centers.')
+    export = point_export(points)
+    st.dataframe(export, hide_index=True, alt='Satellite detections with exact UTC dates, times, coordinates, FRP and harmonized weights.')
+    st.download_button('Download hotspot CSV', export.to_csv(index=False).encode('utf-8-sig'),
+                       f'firms_observations_{start}_{end}.csv', 'text/csv', key='search_csv', on_click='ignore')
+    if points.empty:
+        st.info('No recorded detections match this query. This does not establish that no fire occurred.')
+    if years:
+        st.subheader('Same date interval across years')
+        st.caption('Comparison uses the sum of harmonized weights, not raw counts. Before 2012 this is approximate: '
+                   'weights are calibrated monthly, not daily. The delivered monthly uncertainty bands are not '
+                   'calibrated for exact-day intervals; no numerical confidence interval is claimed here.')
+        comparisons = []
+        for year in years:
+            try:
+                shifted_start = start.replace(year=year)
+                shifted_end = end.replace(year=year + end.year - start.year)
+                if not sensor_interval_coverage(sensor, shifted_start, shifted_end):
+                    comparisons.append({'Start year': year, 'VIIRS-equivalent activity': None,
+                                        'Coverage': 'Selected sensor unavailable for the entire interval'})
+                    continue
+                found, too_many = search_hotspots(point_files(shifted_start, shifted_end), shifted_start, shifted_end, sensor, region)
+                label = interval_coverage(shifted_start, shifted_end, coverage)
+                valid = not too_many and label == 'No monthly completeness flag'
+                comparisons.append({'Start year': year, 'Start date': shifted_start, 'End date': shifted_end,
+                                    'VIIRS-equivalent activity': float(found.peso_harmonizado.sum()) if valid else None,
+                                    'Estimate': 'Approximate · MODIS conversion' if year < 2012 else 'Observed VIIRS weights',
+                                    'Coverage': 'Over 200,000 detections · narrow query' if too_many else label})
+            except (ValueError, duckdb.Error) as error:
+                comparisons.append({'Start year': year, 'VIIRS-equivalent activity': None,
+                                    'Coverage': f'Unavailable: {error}'})
+        table = pd.DataFrame(comparisons)
+        st.dataframe(table, hide_index=True, alt='Same date interval in selected years, compared using harmonized weights with coverage caveats.')
+        st.caption('Incomplete or unavailable intervals are excluded from numerical comparisons. '
+                   'February 29 is unavailable in non-leap years; dates are never silently shifted.')
+        st.download_button('Download interval comparison CSV', table.to_csv(index=False).encode('utf-8-sig'),
+                           f'firms_interval_comparison_{start}_{end}.csv', 'text/csv', key='search_comparison_csv', on_click='ignore')
 
 
 def add_activity_layer(view: folium.Map, cells: pd.DataFrame, origin: str,
@@ -1002,7 +1168,7 @@ def main() -> None:
         with st.container(key='brand_block'):
             st.markdown('## :material/public: EMBER')
             st.caption('EARTH FIRE OBSERVATORY')
-        mode = area_controls(first_year, last_year, expanded=active_view in ('Calendar', 'Trends'))
+        mode = area_controls(first_year, last_year, expanded=active_view in ('Calendar', 'Trends', 'Hotspot search'))
         with st.expander('Science status'):
             st.badge('Processed FIRMS grid available', color='blue')
             st.badge('Calendar mock' if is_mock else 'Real harmonized series loaded', color='orange' if is_mock else 'blue')
@@ -1016,8 +1182,8 @@ def main() -> None:
             st.caption('NASA FIRMS observations · Brazil · Historical patterns')
         st.badge('Archive', icon=':material/satellite_alt:', color='blue')
         st.badge('Calendar · mock' if is_mock else f'Real data · {first_year}–{last_year}', color='orange' if is_mock else 'blue')
-    fire_tab, calendar_tab, trends, methodology, about = st.tabs(
-        ['Fire map', 'Calendar', 'Trends', 'Methodology', 'About'], default='Fire map',
+    fire_tab, calendar_tab, search_tab, trends, methodology, about = st.tabs(
+        ['Fire map', 'Calendar', 'Hotspot search', 'Trends', 'Methodology', 'About'], default='Fire map',
         key='main_tabs', on_change='rerun')
     elapsed = None
     if not calendar_tab.open:
@@ -1046,6 +1212,9 @@ def main() -> None:
             st.subheader('Historical trends')
             st.caption(f"{st.session_state['region_label']} · {start}–{end}")
             show_trends(series, 'MOCK · ' if is_mock else '')
+    with search_tab:
+        if search_tab.open:
+            show_hotspot_search(coverage)
     with methodology:
         if methodology.open:
             show_methodology(is_mock, coverage)
