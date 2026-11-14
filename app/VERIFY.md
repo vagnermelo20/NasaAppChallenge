@@ -26,7 +26,9 @@ processed sensor observations. The delivered archive ends in December 2025.
   **Apply map selection** is clicked. Confirm selection persists across tabs.
 - Toggle anomalies and cell values. Months without an earlier complete-year
   baseline or with a zero median have no percentage anomaly.
-- Compare the latest-month card with the corresponding CSV row.
+- Compare the latest complete-month card with the corresponding CSV row.
+  With the delivered 2026 archive, it must show October 2026 and warn that
+  November is incomplete. Incomplete months remain in the calendar and CSV.
 - Confirm annual/seasonal charts in Trends and the pending science status in
   Methodology. Inspect the PNG exported by the chart's camera button.
 - Open **Fire map**. Confirm the five colored count ranges and the NASA FIRMS

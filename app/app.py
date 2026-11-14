@@ -530,17 +530,18 @@ def anomaly_values(series: pd.DataFrame) -> pd.Series:
 
 def latest_comparison(series: pd.DataFrame) -> dict:
     available = series[series.focos.notna()].sort_values(['ano', 'mes'])
-    if available.empty:
+    complete = available[~available.incompleto]
+    if complete.empty:
         return {}
-    latest = available.iloc[-1]
+    latest = complete.iloc[-1]
+    newer_incomplete = available[available.incompleto & (
+        (available.ano * 12 + available.mes) > (latest.ano * 12 + latest.mes))]
     history = series[(series.mes == latest.mes) & (series.ano < latest.ano)
                      & ~series.incompleto & series.focos.notna()].copy()
     median = history.focos.median()
     delta = ((latest.focos - median) / median * 100
              if pd.notna(median) and median > 0 and not latest.incompleto else None)
-    if latest.incompleto:
-        category = 'Incomplete month'
-    elif len(history) < 3:
+    if len(history) < 3:
         category = 'Limited history'
     elif latest.focos > history.focos.quantile(0.90):
         category = 'Critical'
@@ -552,7 +553,9 @@ def latest_comparison(series: pd.DataFrame) -> dict:
         category = 'Normal'
     return dict(year=int(latest.ano), month=int(latest.mes), value=float(latest.focos),
                 incomplete=bool(latest.incompleto), history=history, median=median,
-                delta=delta, category=category)
+                delta=delta, category=category,
+                newer_incomplete=[f'{MONTHS[int(row.mes)-1]} {int(row.ano)}'
+                                  for row in newer_incomplete.itertuples()])
 
 
 def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bool = True):
@@ -614,9 +617,9 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
 
 def show_comparison(series: pd.DataFrame, prefix: str) -> None:
     summary = latest_comparison(series)
-    st.subheader('Latest available month vs history')
+    st.subheader('Latest complete month vs history')
     if not summary:
-        st.info('No observed month is available in this selection.')
+        st.info('No complete observed month is available in this selection. Incomplete months remain visible in the calendar and CSV.')
         return
     year, month = summary['year'], summary['month']
     delta = summary['delta']
@@ -627,9 +630,11 @@ def show_comparison(series: pd.DataFrame, prefix: str) -> None:
         st.metric('Historical activity category', summary['category'])
     st.caption(f"Baseline: {len(summary['history'])} earlier complete years within the selected range. "
                'Categories describe past activity, not forecasts or operational alerts. At least 3 years are required for a category.')
-    if summary['incomplete']:
-        st.warning('The latest month is incomplete. Its total is provisional; percentage comparisons and category thresholds are suppressed.')
-    elif pd.notna(summary['median']) and summary['median'] == 0:
+    if summary['newer_incomplete']:
+        st.warning('Newer incomplete months: ' + ', '.join(summary['newer_incomplete'])
+                   + '. Their totals are provisional. This comparison uses the latest complete month; '
+                   'incomplete months remain visible in the calendar and CSV.')
+    if pd.notna(summary['median']) and summary['median'] == 0:
         st.caption('Historical median is zero, so a percentage change is undefined.')
     comparisons = series[(series.mes == month) & series.focos.notna()].sort_values('ano')
     fig = go.Figure(go.Bar(

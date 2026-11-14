@@ -256,8 +256,23 @@ class CalendarDataTests(unittest.TestCase):
         self.assertTrue(pd.isna(anomaly_values(series).iloc[2]))
         series.loc[4, 'incompleto'] = True
         summary = latest_comparison(series)
-        self.assertEqual(summary['category'], 'Incomplete month')
-        self.assertIsNone(summary['delta'])
+        self.assertEqual(summary['year'], 2023)
+        self.assertEqual(summary['median'], 15.)
+        self.assertEqual(summary['delta'], 100.)
+        self.assertEqual(summary['newer_incomplete'], ['Sep 2024'])
+
+    def test_latest_complete_month_skips_multiple_provisional_months(self):
+        series = pd.DataFrame({'ano': [2025, 2026, 2026, 2026],
+                               'mes': [10, 10, 11, 12], 'focos': [10., 0., 12., 9.],
+                               'incompleto': [False, False, True, True]})
+        summary = latest_comparison(series.sample(frac=1, random_state=7))
+        self.assertEqual((summary['year'], summary['month']), (2026, 10))
+        self.assertEqual(summary['value'], 0.)
+        self.assertEqual(summary['delta'], -100.)
+        self.assertEqual(summary['newer_incomplete'], ['Nov 2026', 'Dec 2026'])
+        series['incompleto'] = True
+        self.assertEqual(latest_comparison(series), {})
+        self.assertEqual(latest_comparison(series.iloc[:0]), {})
 
     def test_latest_coverage_zero_count_and_no_false_alert(self):
         series = pd.DataFrame({'ano': [2020, 2021, 2022, 2023, 2023],
