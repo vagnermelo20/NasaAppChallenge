@@ -107,6 +107,18 @@ Ainda não há `harmonized.parquet`, documento final ou métricas entregues pela
 - [ ] **J3** (2 h) Vídeo de 30 s + slides: história (incêndio real) → degrau de 2012 sumindo → demo do calendário
 - [ ] **J4** (30 min) Envio no portal do Space Apps com **2 h de folga** antes do prazo
 
+Preparação J1/J2: README em inglês atualizado com execução local, contrato,
+funcionalidades, limitações, papéis da equipe e estado real da entrega.
+Link público e créditos finais permanecem pendentes. A equipe escolheu esperar
+os dados reais antes de publicar (sem deploy do mock).
+`python -m app.check_release` faz verificação somente de leitura dos artefatos
+da Pessoa A; não gera dados nem certifica validade científica. Ainda faltam
+`harmonized.parquet`, `docs/metodologia.md`, `reports/metrics.json` e
+`reports/harmonizado_anual.png`. A próxima integração/publicação depende dessa entrega.
+Verificação desta preparação: 16 testes passaram; geração do mock a partir de uma
+cópia temporária dos arquivos versionados confirmou 1.221.364 registros (2001–2025),
+sem modificar a base científica original. A publicação permanece aguardando dados reais.
+
 ---
 
 ## Pontos de sincronização

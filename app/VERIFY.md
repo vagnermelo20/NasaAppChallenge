@@ -54,3 +54,8 @@ generated, clearly labeled demo dataset before it can serve calendars.
 The entry point is `app/app.py`; dependencies are in `requirements.txt`.
 Keep credentials and `.venv` out of the repository. Public hosting,
 submission, final README and video remain the joint J1–J4 tasks.
+
+The team chose to wait for the real dataset before publishing. Run
+`.venv/Scripts/python.exe -m app.check_release` to list missing or invalid
+scientific artifacts without writing files. Exit status 2 means the handoff is
+incomplete; status 0 means ready for review, not scientifically certified.

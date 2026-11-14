@@ -13,10 +13,41 @@ import numpy as np
 import pandas as pd
 from shapely.geometry import Point, box, mapping
 from streamlit.testing.v1 import AppTest
+from app.check_release import inspect_release
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      radius_polygon)
+
+
+class ReleaseReadinessTests(unittest.TestCase):
+    def test_missing_artifacts_do_not_create_mock_or_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result = inspect_release(root)
+            self.assertEqual(result['status'], 'waiting_for_scientific_artifacts')
+            self.assertEqual(len(result['missing']), 4)
+            self.assertEqual(list(root.iterdir()), [])
+
+    def test_delivered_artifacts_are_ready_for_review_not_certification(self):
+        from PIL import Image
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'data/processed').mkdir(parents=True)
+            (root / 'docs').mkdir()
+            (root / 'reports').mkdir()
+            pd.DataFrame({'lat': [-18.], 'lon': [-56.], 'ano': [2025], 'mes': [1],
+                          'focos_harmonizados': [1.], 'fonte': ['viirs'],
+                          'dado_incompleto': [False]}).to_parquet(root / 'data/processed/harmonized.parquet')
+            (root / 'docs/metodologia.md').write_text('Test methodology', encoding='utf-8')
+            (root / 'reports/metrics.json').write_text('{"test_metric": 0.9}', encoding='utf-8')
+            Image.new('RGB', (2, 2)).save(root / 'reports/harmonizado_anual.png')
+            result = inspect_release(root)
+            self.assertEqual(result['status'], 'ready_for_review')
+            self.assertTrue(result['manual_checks'])
+            self.assertEqual(result['dataset']['first_year'], 2025)
+            (root / 'reports/metrics.json').write_text('{invalid', encoding='utf-8')
+            self.assertEqual(inspect_release(root)['status'], 'waiting_for_scientific_artifacts')
 
 
 class CalendarDataTests(unittest.TestCase):
