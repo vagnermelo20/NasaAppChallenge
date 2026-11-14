@@ -23,6 +23,11 @@ The mock must remain untracked. It is not a validated harmonized product.
 - Compare the latest-month card with the corresponding CSV row.
 - Confirm annual/seasonal charts in Trends and the pending science status in
   Methodology. Inspect the PNG exported by the chart's camera button.
+- Open **Fire map**. Confirm the five colored count ranges and the NASA FIRMS
+  legend. Hover a cell and verify its sensor, UTC month and detection count.
+  Change sensor/month and compare the displayed total with the observation CSV.
+  Toggle **Limit to the applied region** and verify the spatial filter.
+  This layer uses observed sensor-specific counts, not the harmonized mock.
 - For an empty selection, try latitude -30, longitude -35, radius 5 km.
   Confirm a clear empty-selection message and no application error.
 - Repeat at a narrow browser width or on a phone: open/close the sidebar,

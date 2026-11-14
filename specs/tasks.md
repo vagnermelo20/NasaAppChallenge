@@ -67,6 +67,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
 - [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A
+- [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
 
 Validação da entrega B3–B5/B8 com mock: 7 testes em `app/test_delivery.py`;
@@ -98,6 +99,14 @@ não causa retorno silencioso ao mock. Versões mínimas das dependências docum
 Quatorze testes passaram; exemplos e exibição de números conferidos via API local.
 Roteiro de conferência visual, integração B11 e preparação de publicação: `app/VERIFY.md`.
 Ainda não há `harmonized.parquet`, documento final ou métricas entregues pela Pessoa A.
+
+Fire map usa contagens observadas `n_modis`/`n_viirs` da grade existente, separadas
+do calendário mock. Classes fixas Viridis: 1–5, 6–20, 21–100, 101–500, >500
+detecções/célula/mês. Não representa severidade nem área queimada. Fundo sem cor
+não comprova ausência de fogo; revisão final de cobertura permanece pendente.
+Validação: 18 testes passaram; totais e CSV conferidos por SQL independente
+(VIIRS dez/2025: 36.722 em 4.141 células; MODIS set/2024: 155.119 em 6.359 células).
+A aparência no navegador e a interação Leaflet ainda requerem conferência manual.
 
 ---
 

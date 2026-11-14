@@ -16,6 +16,7 @@ import plotly.graph_objects as go
 import shapely
 import streamlit as st
 from folium.plugins import Draw
+from branca.element import MacroElement, Template
 from shapely.geometry import Polygon, mapping, shape
 from streamlit_folium import st_folium
 
@@ -28,6 +29,153 @@ EXAMPLES = {
     'Matopiba': (-10.0, -46.0, 100.0),
     'Acre': (-9.0, -70.0, 100.0),
 }
+FIRE_COLORS = ['#440154', '#3B528B', '#21918C', '#5EC962', '#FDE725']
+FIRE_LABELS = ['1–5', '6–20', '21–100', '101–500', 'More than 500']
+FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
+
+
+class FireLegend(MacroElement):
+    rows: list[tuple[str, str]]
+
+
+def fire_class(count: float) -> int:
+    return int(np.searchsorted([5, 20, 100, 500], count, side='left'))
+
+
+@st.cache_data
+def observation_months(path: str, version: int, sensor: str) -> pd.DataFrame:
+    if sensor not in FIRE_SENSORS:
+        raise ValueError('Unknown satellite sensor.')
+    column = FIRE_SENSORS[sensor]
+    with duckdb.connect() as con:
+        return con.execute(
+            f'SELECT DISTINCT ano, mes FROM read_parquet(?) WHERE {column} > 0 ORDER BY ano, mes',
+            [path]).df()
+
+
+@st.cache_data
+def observation_cells(path: str, version: int, sensor: str, year: int,
+                      month: int, region_wkt: str | None) -> pd.DataFrame:
+    if sensor not in FIRE_SENSORS:
+        raise ValueError('Unknown satellite sensor.')
+    column = FIRE_SENSORS[sensor]
+    with duckdb.connect() as con:
+        cells = con.execute(
+            f'SELECT lat, lon, sum({column}) AS hotspots FROM read_parquet(?) '
+            f'WHERE ano=? AND mes=? GROUP BY lat, lon HAVING sum({column}) > 0',
+            [path, year, month]).df()
+    if region_wkt:
+        cells = cells[shapely.contains_xy(shapely.from_wkt(region_wkt),
+                                         cells.lon + .125, cells.lat + .125)]
+    return cells.sort_values('hotspots', ascending=False).reset_index(drop=True)
+
+
+def fire_features(cells: pd.DataFrame, sensor: str, year: int, month: int) -> dict:
+    features = []
+    for latitude, longitude, count in cells[['lat', 'lon', 'hotspots']].itertuples(index=False, name=None):
+        category = fire_class(count)
+        west, south = float(longitude), float(latitude)
+        ring = [[west, south], [west + .25, south], [west + .25, south + .25],
+                [west, south + .25], [west, south]]
+        features.append({'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [ring]},
+                         'properties': {'hotspots': int(count), 'sensor': sensor,
+                                        'period': f'{year}-{month:02d}', 'range': FIRE_LABELS[category],
+                                        'color': FIRE_COLORS[category]}})
+    return {'type': 'FeatureCollection', 'features': features}
+
+
+def fire_legend() -> MacroElement:
+    # This is a Leaflet overlay, not a replacement for native Streamlit controls.
+    legend = FireLegend()
+    legend.rows = list(zip(FIRE_COLORS, FIRE_LABELS))
+    legend._template = Template('''
+        {% macro html(this, kwargs) %}
+        <div role="note" aria-label="NASA FIRMS monthly hotspot count legend"
+             style="position:absolute;bottom:28px;right:10px;z-index:999;
+                    background:rgba(255,255,255,.95);color:#111;padding:12px;
+                    border:1px solid #777;border-radius:6px;font:12px sans-serif;max-width:180px;">
+          <strong>NASA FIRMS hotspots</strong><br>Detections / cell / month
+          {% for color, label in this.rows %}
+          <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
+            <span aria-hidden="true" style="display:inline-block;width:14px;height:14px;background:{{color}};"></span>
+            <span>{{label}}</span>
+          </div>
+          {% endfor %}
+          <div style="margin-top:8px;">Unfilled: not classified<br>Not burned area or fire severity</div>
+        </div>
+        {% endmacro %}
+    ''')
+    return legend
+
+
+@st.fragment
+def show_fire_map() -> None:
+    st.subheader('NASA FIRMS · observed fire activity')
+    st.caption('Historical satellite detections, aggregated into 0.25° cells. '
+               'These sensor-specific observations are separate from the harmonized calendar.')
+    st.caption('Map date controls are independent of the calendar year range in the sidebar.')
+    grid = ROOT / 'data/processed/grid_monthly.parquet'
+    if not grid.exists():
+        st.info('The observed monthly grid has not been supplied.')
+        return
+    sensor = st.selectbox('Observation sensor', list(FIRE_SENSORS), key='fire_sensor',
+                          help='Raw counts from different sensors cannot be compared directly.')
+    path, version = str(grid), grid.stat().st_mtime_ns
+    try:
+        available = observation_months(path, version, sensor)
+    except (duckdb.Error, ValueError) as error:
+        st.warning(f'The observed grid is incompatible with this layer: {error}')
+        return
+    if available.empty:
+        st.info('No observed months are available for this sensor.')
+        return
+    years = sorted(int(y) for y in available.ano.unique())
+    year = st.selectbox('Observation year (UTC)', years, index=len(years) - 1, key='fire_year')
+    months = sorted(int(m) for m in available[available.ano == year].mes)
+    month = st.selectbox('Observation month (UTC)', months, index=len(months) - 1,
+                         format_func=lambda m: MONTHS[m - 1], key='fire_month')
+    limit = st.toggle('Limit to the applied region', value=False, key='fire_limit',
+                      help='Use the region applied in Calendar. Without a selection, the entire Brazil dataset is shown.')
+    region = st.session_state.get('regiao') if limit else None
+    cells = observation_cells(path, version, sensor, year, month, region)
+    with st.container(horizontal=True):
+        st.metric('Observed hotspots', f'{cells.hotspots.sum():,.0f}')
+        st.metric('Cells with detections', f'{len(cells):,}')
+    st.caption(f'{sensor} · {year}-{month:02d} · '
+               + (st.session_state.get('region_label', 'Brazil') if region else 'Brazil · entire dataset'))
+    if cells.empty:
+        st.info('No recorded hotspots in the selected cells and month. This does not establish that no fire occurred.')
+    view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap', prefer_canvas=True)
+    view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
+    view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
+    if not cells.empty:
+        folium.GeoJson(
+            fire_features(cells, sensor, year, month), name='NASA FIRMS activity',
+            smooth_factor=0, style_function=lambda feature: {
+                'fillColor': feature['properties']['color'], 'fillOpacity': .8,
+                'color': feature['properties']['color'], 'weight': .3},
+            highlight_function=lambda _: {'weight': 2, 'color': '#FFFFFF', 'fillOpacity': .95},
+            tooltip=folium.GeoJsonTooltip(fields=['sensor', 'period', 'hotspots', 'range'],
+                                         aliases=['Sensor', 'UTC month', 'Hotspots in cell', 'Count range']),
+        ).add_to(view)
+        if region:
+            west, south, east, north = shapely.from_wkt(region).bounds
+            view.fit_bounds([[south, west], [north, east]])
+    fire_legend().add_to(view)
+    st_folium(view, height=520, use_container_width=True, key=f'fire_observations_{sensor}_{year}_{month}_{limit}_{region}',
+              returned_objects=[])
+    st.caption('Colors represent hotspot counts, not fire intensity, severity, probability or burned area. '
+               'Unfilled cells are not classified by this layer; zero detections and missing observations cannot be distinguished here. '
+               'Coverage flags and final quality review are pending from the science team.')
+    st.markdown('Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · '
+                'MODIS and VIIRS historical observations. No live feed is used.')
+    export = cells.assign(sensor=sensor, year=year, month=month,
+                          count_range=[FIRE_LABELS[fire_class(value)] for value in cells.hotspots])
+    st.download_button('Download observed map cells', export.to_csv(index=False).encode('utf-8-sig'),
+                       f'firms_observed_{FIRE_SENSORS[sensor]}_{year}-{month:02d}.csv', 'text/csv',
+                       key='fire_download', on_click='ignore')
+    with st.expander('Observed cell values'):
+        st.dataframe(export, hide_index=True, alt='NASA FIRMS observed counts for each displayed grid cell.')
 
 
 def data_source() -> tuple[str, int]:
@@ -431,7 +579,8 @@ def main() -> None:
     first_year, last_year = int(coverage.ano.min()), int(coverage.ano.max())
     is_mock = Path(path) == MOCK
     if is_mock:
-        st.warning('Development preview — MOCK data. The provisional conversion is not validated harmonization.')
+        st.warning('Calendar development preview — MOCK data. The provisional conversion is not validated harmonization. '
+                   'Fire map displays the separate sensor-specific observations.')
     st.session_state.setdefault('regiao', None)
     st.session_state.setdefault('region_label', 'Brazil · entire dataset')
     st.session_state.setdefault('map_revision', 0)
@@ -482,8 +631,8 @@ def main() -> None:
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')
-    calendar_tab, trends, methodology, about = st.tabs(
-        ['Calendar', 'Trends', 'Methodology', 'About'], key='main_tabs', on_change='rerun')
+    calendar_tab, fire_tab, trends, methodology, about = st.tabs(
+        ['Calendar', 'Fire map', 'Trends', 'Methodology', 'About'], key='main_tabs', on_change='rerun')
     if not calendar_tab.open:
         # Preserve the editable shapes when the browser component leaves the page.
         st.session_state['map_seed_wkt'] = st.session_state.get('draft_region')
@@ -558,6 +707,9 @@ def main() -> None:
                          alt='Monthly values available in the CSV download.')
             st.caption('Within dataset coverage, missing cell-month rows are treated as zero under the data contract. '
                        'A completely missing observation month cannot be distinguished without additional coverage metadata.')
+    with fire_tab:
+        if fire_tab.open:
+            show_fire_map()
     with trends:
         st.subheader('Historical trends')
         if trends.open:
@@ -571,7 +723,7 @@ def main() -> None:
         st.markdown('Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/)')
     st.divider()
     st.caption('Hotspots are satellite detections, not number of fires or burned area.')
-    st.caption(f"Data: {Path(path).name} · {'MOCK — development only' if is_mock else 'Harmonized dataset'} · Query: {elapsed:.3f} s")
+    st.caption(f"Calendar data: {Path(path).name} · {'MOCK — development only' if is_mock else 'Harmonized dataset'} · Query: {elapsed:.3f} s")
 
 
 if __name__ == '__main__':

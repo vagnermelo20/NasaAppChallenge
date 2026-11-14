@@ -26,6 +26,8 @@ not forecast ignition or provide operational emergency alerts.
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
 - Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.
+- View **Fire map**, a classified NASA FIRMS observation layer with fixed count
+  ranges, a map legend, sensor/month controls, per-cell tooltips and a cell CSV.
 - Compare the latest available month with earlier complete years.
 - Inspect annual activity and monthly seasonality, with incomplete periods identified.
 - Download the monthly regional CSV or export a PNG with the chart camera button.
@@ -64,6 +66,14 @@ for front-end development.
 The mock generator uses MODIS × 3.8 before 2012 and VIIRS counts thereafter.
 This provisional factor is **not validated harmonization**. The mock is local,
 ignored by Git, and identified in the interface, chart titles and CSV exports.
+
+The **Fire map** tab reads the separate, observed counts in the tracked monthly
+grid (`n_modis` / `n_viirs`), not the calendar mock. Its fixed Viridis classes are
+1–5, 6–20, 21–100, 101–500 and more than 500 detections per cell/month. These are
+count ranges, not fire severity or burned-area classes. Its date controls are
+independent of the calendar range. Raw MODIS and VIIRS counts are not directly
+comparable, and final coverage/quality review remains pending. Unfilled cells
+are unclassified, not proof of no fire. Publishing still waits for real harmonized data.
 
 When `data/processed/harmonized.parquet` exists, the app prioritizes it over the
 mock and checks its basic contract. An invalid real file is reported rather

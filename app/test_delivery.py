@@ -17,7 +17,8 @@ from app.check_release import inspect_release
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
-                     radius_polygon)
+                     radius_polygon, fire_class, fire_features, fire_legend,
+                     observation_cells, observation_months)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -51,6 +52,37 @@ class ReleaseReadinessTests(unittest.TestCase):
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_fire_classes_and_cell_geometry(self):
+        self.assertEqual([fire_class(value) for value in [1, 5, 6, 20, 21, 100, 101, 500, 501]],
+                         [0, 0, 1, 1, 2, 2, 3, 3, 4])
+        cells = pd.DataFrame({'lat': [-18.25], 'lon': [-56.5], 'hotspots': [501]})
+        feature = fire_features(cells, 'VIIRS S-NPP', 2024, 9)['features'][0]
+        from shapely.geometry import shape
+        self.assertEqual(shape(feature['geometry']).bounds, (-56.5, -18.25, -56.25, -18.0))
+        self.assertEqual(feature['properties']['range'], 'More than 500')
+        self.assertEqual(feature['properties']['hotspots'], 501)
+        import folium
+        view = folium.Map()
+        fire_legend().add_to(view)
+        self.assertIn('NASA FIRMS monthly hotspot count legend', view.get_root().render())
+
+    def test_observed_layer_queries_sensor_and_month(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'observations.parquet'
+            pd.DataFrame({'lat': [-18.25, -18.25, -18.25],
+                          'lon': [-56.5, -56.5, -56.0], 'ano': [2024] * 3,
+                          'mes': [8, 9, 9], 'n_modis': [3, 5, 7],
+                          'n_viirs': [10, 20, 30]}).to_parquet(path)
+            version = path.stat().st_mtime_ns
+            self.assertEqual(list(observation_months(str(path), version, 'VIIRS S-NPP').mes), [8, 9])
+            selected = observation_cells(str(path), version, 'VIIRS S-NPP', 2024, 9,
+                                         box(-56.4, -18.2, -56.3, -18.0).wkt)
+            self.assertEqual(selected.hotspots.sum(), 20)
+            modis = observation_cells(str(path), version, 'MODIS Terra + Aqua', 2024, 9, None)
+            self.assertEqual(modis.hotspots.sum(), 12)
+            with self.assertRaises(ValueError):
+                observation_cells(str(path), version, 'unknown', 2024, 9, None)
+
     def test_dataset_contract_reports_missing_and_invalid_values(self):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / 'missing.parquet'
@@ -238,7 +270,7 @@ class ApplicationTests(unittest.TestCase):
         with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
             app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
             self.assertFalse(app.exception)
-            self.assertEqual(len(app.tabs), 4)
+            self.assertEqual(len(app.tabs), 5)
             app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
             app.slider(key='year_range').set_value((2015, 2020))
             app.number_input(key='radius').set_value(100.)
