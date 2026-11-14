@@ -5,3 +5,4 @@ __pycache__/
 .ipynb_checkpoints/
 .claude/settings.local.json
 .env
+data/processed/harmonized_mock.parquet

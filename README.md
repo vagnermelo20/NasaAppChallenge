@@ -10,6 +10,9 @@ Une os focos de calor do **MODIS** (1 km, 2001→) e do **VIIRS S-NPP** (375 m, 
 | `specs/` | Spec-Driven Development: `spec.md` (o quê), `plan.md` (como), `tasks.md` (tarefas) |
 | `notebooks/00_entendendo_dados.ipynb` | Análise e visualização: o que cada sensor mede e por que diferem |
 | `notebooks/01_dados.ipynb` | Download do FIRMS (Brasil), filtros e grade 0,25° × mês |
+| `notebooks/02_identificacao_dados.ipynb` | Identificação campo a campo (skill identificador-de-dados) |
+| `notebooks/03_versao_pixel_campos.ipynb` | Versão do MODIS, tamanho do pixel e comparação campo a campo |
+| `specs/frontend_pessoa_B.md` | Passo a passo do front-end (site) |
 | `data/processed/` | `grid_monthly.parquet` — contagens por célula, mês e sensor |
 | `reports/` | Figuras geradas pelos notebooks |
 

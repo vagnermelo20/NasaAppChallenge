@@ -10,3 +10,4 @@ streamlit-folium
 plotly
 shapely
 pypdf
+scikit-learn
