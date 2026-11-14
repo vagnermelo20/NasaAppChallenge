@@ -19,7 +19,7 @@ from app.app import (anomaly_values, cached_series, calendar_figure, complete_mo
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      radius_polygon, fire_class, fire_features, fire_legend,
                      observation_cells, observation_months, harmonized_map_cells,
-                     fire_signal_features, add_activity_layer)
+                     fire_signal_features, add_activity_layer, hotspot_locations, add_hotspot_locations)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -53,6 +53,26 @@ class ReleaseReadinessTests(unittest.TestCase):
 
 
 class CalendarDataTests(unittest.TestCase):
+    def test_hotspot_locations_filter_date_sensor_and_exact_coordinates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'points.parquet'
+            pd.DataFrame({'lat': [-18.19, -18.18, -18.17], 'lon': [-56.41] * 3,
+                          'data': pd.to_datetime(['2025-12-01', '2026-01-01', '2025-12-02']),
+                          'hora_utc': [1200] * 3, 'satelite': ['S-NPP', 'S-NPP', 'Terra'],
+                          'frp': [2.] * 3, 'peso_harmonizado': [1.] * 3}).to_parquet(path)
+            points = hotspot_locations(str(path), path.stat().st_mtime_ns, 2025, 12,
+                                       'VIIRS S-NPP', box(-57, -19, -56, -18).wkt)
+            self.assertEqual(len(points), 1)
+            self.assertEqual(points.lat.iloc[0], -18.19)
+            import folium
+            view = folium.Map(tiles=None, prefer_canvas=True)
+            add_hotspot_locations(view, points, .8)
+            fire_legend(True, 'Hotspot locations', 'Dec 2025').add_to(view)
+            html = view.get_root().render()
+            self.assertIn('#FF241C', html)
+            self.assertIn('[-56.41, -18.19]', html)
+            self.assertNotIn('Activity glow', html)
+
     def test_signal_view_preserves_counts_and_marks_only_cell_centers(self):
         cells = pd.DataFrame({'lat': [-18.25, -18.0], 'lon': [-56.5, -56.25],
                               'hotspots': [5.75, 1200.5]})

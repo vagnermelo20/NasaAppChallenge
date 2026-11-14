@@ -87,6 +87,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - [x] **B14** Revisão visual solicitada: atlas escuro/satélite, símbolos proporcionais por centro de célula, grade alternativa, legenda horizontal, contorno regional e expansão do mapa · R7/R8
+- [x] **B21** Visual solicitado baseado no FIRMS: satélite como fundo padrão e pontos vermelhos pequenos nas coordenadas reais dos arquivos anuais de focos; grade mensal preservada como opção. Filtro por mês/sensor/região, sem halos nem posições inventadas. 23 testes passaram; aparência no Chrome aguarda conferência do usuário.
 - [ ] **B15** Destaque e anomalia usando o **último mês completo** (out/2026), não nov/2026 (incompleto) · R9
 - [ ] **B16** Fire map lendo `grid_sat.parquet` (mesma preparação científica; já tem 2026), somando `n` por satélite × mês
 - [ ] **B17** About, Methodology e README: fonte real carregada, figuras `prova_antes_depois.png` / `prova_pantanal.png`, A2 não atingido na célula + regra "mês de pico confiável em áreas ≥ ~2° ou com centenas de focos"; métricas do método final em destaque · R11

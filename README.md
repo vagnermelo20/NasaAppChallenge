@@ -30,11 +30,12 @@ map-focused workspace with a dark observation catalog, compact indicators,
 layer opacity controls, a source card and a matching map legend. Calendar,
 Trends and Methodology load their content only when selected.
 
-The map opens in **Signal view** on an Esri dark atlas background. Proportional
-symbols and subtle halos locate the centers of the original 0.25° cells; they
-do not represent individual fire locations or burned extents. **Analysis grid**
+The map opens in **Hotspot locations** on Esri satellite imagery. Small red dots
+show actual detection coordinates from the science team's annual point files,
+without halos or proportional sizing. Dots are detections, not unique fires.
+The indicators and cell export retain the monthly analysis totals. **Analysis grid**
 retains the original polygons. The compact horizontal legend, region outline
-and fullscreen control keep the map readable. Satellite imagery and the street
+and fullscreen control keep the map readable. Dark atlas and the street
 map are alternative backgrounds, with provider attribution. Esri background
 imagery is context and is not synchronized to the NASA observation date.
 

@@ -2,7 +2,7 @@
 import calendar
 import json
 import math
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from time import perf_counter
 from zoneinfo import ZoneInfo
@@ -33,10 +33,10 @@ FIRE_COLORS = ['#440154', '#3B528B', '#21918C', '#5EC962', '#FDE725']
 FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
 FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
 MAP_BASES = {
-    'Dark atlas': ('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
-                   'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors and the GIS user community'),
     'Satellite imagery': ('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
                           'Imagery &copy; Esri, Vantor, Earthstar Geographics and the GIS user community'),
+    'Dark atlas': ('https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+                   'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors and the GIS user community'),
     'Street map': ('OpenStreetMap', ''),
 }
 
@@ -127,6 +127,34 @@ def fire_signal_features(cells: pd.DataFrame, sensor: str, year: int, month: int
     return collection
 
 
+@st.cache_data
+def hotspot_locations(path: str, version: int, year: int, month: int,
+                      sensor: str | None, region_wkt: str | None) -> pd.DataFrame:
+    start = date(year, month, 1)
+    end = date(year + (month == 12), month % 12 + 1, 1)
+    predicate = " AND satelite = 'S-NPP'" if sensor == 'VIIRS S-NPP' else (
+        " AND satelite IN ('Terra', 'Aqua')" if sensor == 'MODIS Terra + Aqua' else '')
+    with duckdb.connect() as con:
+        points = con.execute('SELECT lat, lon, data, hora_utc, satelite, frp, peso_harmonizado '
+                             'FROM read_parquet(?) WHERE data >= ? AND data < ?' + predicate,
+                             [path, start, end]).df()
+    if region_wkt:
+        points = points[shapely.contains_xy(shapely.from_wkt(region_wkt), points.lon, points.lat)]
+    return points.reset_index(drop=True)
+
+
+def add_hotspot_locations(view: folium.Map, points: pd.DataFrame, opacity: float) -> None:
+    # GeoJSON uses the map's canvas renderer for small, fixed-size detection dots.
+    data = {'type': 'FeatureCollection', 'features': [
+        {'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [float(lon), float(lat)]},
+         'properties': {}} for lat, lon in points[['lat', 'lon']].itertuples(index=False, name=None)]}
+    if data['features']:
+        folium.GeoJson(data, name='NASA FIRMS hotspot locations',
+                       marker=folium.CircleMarker(radius=1.6, stroke=False, fill=True,
+                                                  fill_color='#FF241C', fill_opacity=opacity),
+                       interactive=False).add_to(view)
+
+
 def add_activity_layer(view: folium.Map, cells: pd.DataFrame, origin: str,
                        year: int, month: int, opacity: float, mode: str) -> None:
     if cells.empty:
@@ -176,6 +204,12 @@ def fire_legend(harmonized: bool = False, view_mode: str = 'Analysis grid', peri
           <div style="font-size:10px;color:#a7bdce;margin-top:3px;">NASA FIRMS · {{this.view_mode}}</div>
         </div>
         <div class="ember-map-legend" role="note" aria-label="NASA FIRMS monthly hotspot count legend">
+          {% if this.view_mode == 'Hotspot locations' %}
+          <div style="display:flex;align-items:center;gap:10px;font-size:12px;font-weight:650;">
+            <span style="width:7px;height:7px;border-radius:50%;background:#FF241C;"></span>NASA FIRMS hotspot locations
+          </div>
+          <div style="font-size:10px;color:#bdcedd;margin-top:7px;">Recorded satellite detections · not unique fires or burned area</div>
+          {% else %}
           <div style="display:flex;justify-content:space-between;gap:12px;margin-bottom:9px;">
             <strong style="font-size:11px;">{{this.units}}</strong><span style="color:#90aabf;font-size:10px;">PER MONTH</span>
           </div>
@@ -186,6 +220,7 @@ def fire_legend(harmonized: bool = False, view_mode: str = 'Analysis grid', peri
             {% endfor %}
           </div>
           <div style="font-size:9px;color:#8fa8bc;margin-top:9px;">0.25° aggregates · not burned area or individual fire locations</div>
+          {% endif %}
         </div>
         <style>
         .leaflet-container {background:#101820;font-family:system-ui,sans-serif;}
@@ -262,12 +297,12 @@ def show_fire_map() -> None:
                                  key='fire_month', persist_state='session')
         limit = st.toggle('Use selected area', value=False, key='fire_limit', persist_state='session',
                           help='Filter to the area applied in Calendar; otherwise show Brazil.')
-        visual_mode = st.segmented_control('Display style', ['Signal view', 'Analysis grid'],
-                                           default='Signal view', required=True, key='fire_visual_mode',
+        visual_mode = st.segmented_control('Display style', ['Hotspot locations', 'Analysis grid'],
+                                           default='Hotspot locations', required=True, key='fire_visual_mode',
                                            width='stretch', persist_state='session',
-                                           help='Signals mark 0.25° cell centers and encode activity by size/color. They are not individual fire locations.')
+                                           help='Red dots show recorded detection coordinates. Analysis grid shows monthly activity in 0.25° cells.')
         with st.expander('Layer appearance'):
-            basemap = st.selectbox('Map background', list(MAP_BASES), key='fire_basemap', persist_state='session')
+            basemap = st.selectbox('Map background', list(MAP_BASES), key='fire_basemap_satellite', persist_state='session')
             opacity = st.slider('Layer opacity', .25, 1., .8, .05, key='fire_opacity', persist_state='session')
     region = st.session_state.get('regiao') if limit else None
     cells = (harmonized_map_cells(path, version, year, month, region) if harmonized else
@@ -324,7 +359,18 @@ def show_fire_map() -> None:
                          max_zoom=18, max_native_zoom=16).add_to(view)
     view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
     view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
-    add_activity_layer(view, cells, origin, year, month, opacity, visual_mode)
+    if visual_mode == 'Hotspot locations':
+        point_file = ROOT / f'data/processed/focos/focos_{year}.parquet'
+        if point_file.exists():
+            points = hotspot_locations(str(point_file), point_file.stat().st_mtime_ns, year, month,
+                                       None if harmonized else sensor, region)
+            add_hotspot_locations(view, points, opacity)
+            st.caption(f'{len(points):,} recorded detection locations shown. The indicators and cell export above '
+                       'describe the monthly analysis grid; harmonized weights do not create additional map points.')
+        else:
+            st.info('Individual detection coordinates are not available for this year. Select Analysis grid to view activity.')
+    else:
+        add_activity_layer(view, cells, origin, year, month, opacity, visual_mode)
     if region:
         folium.GeoJson(mapping(shapely.from_wkt(region)), name='Selected area',
                        style_function=lambda _: {'color': '#8FD5EB', 'weight': 1.5,
@@ -335,7 +381,7 @@ def show_fire_map() -> None:
     folium.LayerControl(position='topright', collapsed=True).add_to(view)
     fire_legend(harmonized, visual_mode, f'{MONTHS[month-1]} {year} · {area}').add_to(view)
     st_folium(view, height=650, use_container_width=True,
-              key=f'fire_atlas_v2_{visual_mode}_{basemap}_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
+              key=f'fire_atlas_v3_{visual_mode}_{basemap}_{product}_{sensor}_{version}_{year}_{month}_{limit}_{region}', returned_objects=[])
     st.caption(f'NASA FIRMS · {unit} per cell/month · unfilled cells are unclassified. '
                'Counts do not measure fire severity or burned area. Map dates are independent of the calendar range.')
     if visual_mode == 'Signal view':

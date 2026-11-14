@@ -39,8 +39,9 @@ processed sensor observations. The delivered archive ends in December 2025.
 - Check the dark catalog, compact indicators, map popup and layer controls.
   Change opacity and ensure counts do not change. On a narrow screen, confirm
   the sidebar can be collapsed and all controls remain accessible.
-- Confirm the new **Signal view** uses proportional symbols at cell centers,
-  while **Analysis grid** shows the original polygons. Counts and CSV must match
+- Confirm **Hotspot locations** opens on satellite imagery with tiny red dots,
+  without halos. Dots use the actual detection coordinates, not cell centers.
+  **Analysis grid** shows the original polygons. Indicators and cell CSV must match
   in both modes. Under **Layer appearance**, switch Dark atlas / Satellite
   imagery / Street map; verify provider attribution and imagery-context notice.
   Check the compact horizontal legend, region outline, fullscreen button and
