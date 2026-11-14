@@ -697,11 +697,14 @@ def show_validation_summary(data: dict) -> None:
     if final:
         st.subheader('Delivered method · validation summary')
         annual = next((row for row in proof.get('por_escala_de_tempo_2deg', []) if row.get('escala') == 'ano'), {})
+        monthly = next((row for row in proof.get('por_escala_de_tempo_2deg', []) if row.get('escala') == 'mês'), {})
         with st.container(horizontal=True):
             st.metric('National monthly correlation', f"{final['correlacao_mensal']:.3f}")
             st.metric('Mean annual absolute error · national', f"{final['erro_anual_medio_abs'] * 100:.2f}%")
             st.metric('Annual agreement within ±20% · 2° regions', annual.get('dentro de ±20%', 'Not reported'))
+            st.metric('Monthly agreement within ±20% · 2° regions', monthly.get('dentro de ±20%', 'Not reported'))
         st.caption('Final-method results reported by the science team. Leave-one-year-out, 2012–2021. '
+                   'Regional agreement subsets: at least 100 VIIRS hotspots per month or 300 per year. '
                    'Annual regional agreement is not the cell-scale peak-month acceptance criterion.')
         rows = [{'Region size': r.get('tamanho da região'), 'Median monthly difference': r.get('convertido: diferença mediana'),
                  'Months within ±20%': r.get('convertido: dentro de ±20%'), 'Correlation': r.get('correlação')}
@@ -716,10 +719,12 @@ def show_validation_summary(data: dict) -> None:
         cell = data.get('loyo_2012_2021', {}).get('celula', {})
         peak = cell.get('acerto_mes_pico')
         peak_text = f'{peak * 100:.1f}%' if isinstance(peak, (int, float)) else 'not reported'
-        qualifier = 'version-1 evaluation' if data.get('nota') else 'reported evaluation'
-        st.warning(f'Cell-scale acceptance is pending: peak-month accuracy is {peak_text} in the {qualifier}, '
-                   'below the 80% target. The official cell-scale evaluation must be rerun for the final method. '
-                   'Regional agreement does not replace this requirement.')
+        tolerance = cell.get('acerto_mes_pico_mais_menos_1')
+        tolerance_text = f'{tolerance * 100:.1f}%' if isinstance(tolerance, (int, float)) else 'not reported'
+        st.warning(f'A2 was not met at the 0.25° cell scale: peak-month accuracy is {peak_text}, '
+                   f'below the 80% target; within ±1 month it is {tolerance_text}. '
+                   'These are the final-method leave-one-year-out results. '
+                   'Regional or annual agreement does not replace the cell-scale acceptance criterion.')
 
 
 def show_methodology(is_mock: bool, coverage: pd.DataFrame | None = None) -> None:
@@ -921,6 +926,10 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
                     config={'displaylogo': False, 'toImageButtonOptions': {
                         'format': 'png', 'filename': f"{'mock_' if is_mock else ''}calendar_{start}-{end}"}})
     st.caption('* Incomplete data · — Outside available coverage. Before 2012: MODIS converted to VIIRS scale.')
+    st.info('Read the peak month at the right scale: it is more reliable for areas of about 2° or larger, '
+            'or with hundreds of hotspots per year. For small areas, interpret the timing within ±1 month. '
+            'Final-method cell-scale peak-month accuracy is 73.7% (90.4% within ±1 month); '
+            'the 80% exact-month target was not met.')
     if anomaly:
         st.caption('Blank cells have incomplete data, no earlier baseline, or a zero median. The color scale is centered on zero.')
     show_comparison(series, 'MOCK · ' if is_mock else '')
@@ -998,8 +1007,9 @@ def main() -> None:
             st.badge('Processed FIRMS grid available', color='blue')
             st.badge('Calendar mock' if is_mock else 'Real harmonized series loaded', color='orange' if is_mock else 'blue')
             st.caption(f"{Path(path).name} · {first_year}–{last_year} · {int(coverage.incompleto.sum())} incomplete months")
-            st.badge('Scientific acceptance under review', color='orange')
-            st.caption('Scientific artifacts have been delivered. Official final-method cell-scale validation and public deployment remain pending.')
+            st.badge('A2 cell-scale peak target not met', color='orange')
+            st.caption('Final-method validation has been delivered: exact peak month 73.7% against an 80% target. '
+                       'Public deployment remains pending.')
     with st.container(horizontal=True, vertical_alignment='center'):
         with st.container(width='stretch'):
             st.subheader('Fire activity workspace')
@@ -1046,12 +1056,17 @@ def main() -> None:
             calendar_status = ('Development mock, with a provisional conversion.' if is_mock else
                                f'Real harmonized series delivered by the science team, {first_year}–{last_year}. '
                                'MODIS converted before 2012; observed S-NPP thereafter.')
-            st.markdown('**Map:** real harmonized activity or separately identified sensor observations from the processed grid.\n\n'
+            st.markdown('**Map:** recorded detection coordinates on satellite imagery, with a monthly analysis grid available separately.\n\n'
                         f'**Calendar:** {calendar_status}\n\n'
                         '**Built for:** fire managers, researchers and land managers exploring historical patterns.')
             last = coverage.iloc[-1]
             st.caption(f'The delivered archive ends in {MONTHS[int(last.mes)-1]} {int(last.ano)}. It is not a real-time emergency feed. '
-                       'The final-method cell-scale acceptance criterion is still under review.')
+                       'Incomplete months are provisional; the historical comparison uses the latest complete month.')
+            st.markdown('**Agreement at the 2° regional scale:** converted MODIS and observed VIIRS agree within ±20% '
+                        'in **66% of monthly comparisons** (at least 100 VIIRS hotspots) and **92% of annual comparisons** '
+                        '(at least 300 VIIRS hotspots). These results are specific to the stated scales and evaluation subsets.')
+            st.caption('Final-method cell-scale peak-month accuracy: 73.7% (90.4% within ±1 month). '
+                       'The 80% exact-month acceptance target was not met. See Methodology for the full evaluation.')
             st.markdown('[NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · [Project repository](https://github.com/vagnermelo20/NasaAppChallenge)')
     st.caption('Hotspots are satellite detections, not number of fires or burned area.')
     if elapsed is not None:

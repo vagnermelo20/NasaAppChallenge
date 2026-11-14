@@ -15,7 +15,8 @@ The new EMBER workspace opens on Fire map. Observation sensor, period, layer
 opacity and CSV export are in the sidebar. Expand **Area & calendar filters**
 to change the area, use examples, or set calendar years. The source card must
 show `harmonized.parquet` for the harmonized product and `grid_sat.parquet` for
-processed sensor observations. The delivered archive ends in December 2025.
+processed sensor observations. The delivered archive ends in November 2026
+(incomplete); October 2026 is the latest complete month.
 
 - Open `http://localhost:8501` and refresh after code changes.
 - Under **Try an example region**, apply Pantanal, Matopiba and Acre. Each is
@@ -29,6 +30,11 @@ processed sensor observations. The delivered archive ends in December 2025.
 - Compare the latest complete-month card with the corresponding CSV row.
   With the delivered 2026 archive, it must show October 2026 and warn that
   November is incomplete. Incomplete months remain in the calendar and CSV.
+- Near the calendar, confirm the peak-month scale guidance (about 2° or larger,
+  or hundreds of hotspots/year; ±1 month for small areas). Methodology and About
+  must distinguish 66% monthly agreement from 92% annual agreement at 2° scale,
+  and state that the 73.7% exact cell-scale peak result misses the 80% target.
+  About must describe real data without a mock warning when the real file is loaded.
 - Confirm annual/seasonal charts in Trends and the pending science status in
   Methodology. Inspect the PNG exported by the chart's camera button.
 - Open **Fire map**. Confirm the five colored count ranges and the NASA FIRMS
