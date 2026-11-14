@@ -58,16 +58,23 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B0** (15 min) Ambiente: `app/app.py` abrindo com `streamlit run`
 - [x] **B1** (5 min) Rodar `app/make_mock.py` (script já criado) e ligar o app ao mock
 - [x] **B2** (30 min) Layout: barra lateral de filtros + abas Calendar / Trends / Methodology / About
-- [ ] **B3** (2 h) Região: desenho no mapa (retângulo/polígono) ou lat/lon + raio · R7
-- [ ] **B4** (1,5 h) Consulta DuckDB da região por ano × mês em < 3 s · R7, A3
-- [ ] **B5** (2 h) Calendário heatmap ano × mês (viridis), meses incompletos marcados · R8
+- [x] **B3** (2 h) Região: desenho no mapa (retângulo/polígono) ou lat/lon + raio · R7
+- [x] **B4** (1,5 h) Consulta DuckDB da região por ano × mês em < 3 s · R7, A3
+- [x] **B5** (2 h) Calendário heatmap ano × mês (viridis), meses incompletos marcados · R8
 - [ ] **B6** (1,5 h) Cartão mês atual × mediana + modo anomalia (PuOr) · R9
 - [ ] **B7** (1 h) Aba Trends: série anual + sazonalidade
-- [ ] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
+- [x] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
 - [ ] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
 - [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
+
+Validação da entrega B3–B5/B8 com mock: 7 testes em `app/test_delivery.py`;
+consulta fria do Pantanal (2001–2025, 300 meses) em 0,247 s, soma conferida por SQL independente;
+CSV conferido contra o calendário via HTTP para Pantanal, Matopiba, Acre e região sem focos.
+Seleção por coordenadas validada na aplicação; eventos de desenho/edição/exclusão cobertos em Python.
+Interação Leaflet e exportação PNG no navegador aguardam conferência manual (controle do Chrome não autorizado).
+Checkpoint 4 com o arquivo real continua pendente.
 
 ---
 
