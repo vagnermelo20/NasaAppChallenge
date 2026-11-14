@@ -31,24 +31,32 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 ## Pessoa A — Dados/Ciência
 
 ### Fase 2 — Harmonização · R2, R3, R4, R5 ← PRIORIDADE
-- [ ] **A1** (1 h) Regerar a grade com colunas `satellite` (Terra/Aqua/N) e `daynight` → `grid_monthly.parquet` v2 · R3
-- [ ] **A2** (1 h) Máscara de fontes estáticas: células 0,25° com `type=2` em qualquer ano/sensor → `static_mask.parquet`; aplicar na grade · R2
-- [ ] **A3** (2 h) `notebooks/04_harmonizacao.ipynb`: `k_Terra` e `k_Aqua` por bloco 5° × mês (2012–2021), fallback nacional se < 30 focos · R4
-- [ ] **A4** (1 h) Série final: 2001–2011 MODIS convertido (jan/2001–jun/2002 só Terra), 2012→ VIIRS real → `harmonized.parquet` · R5
-- [ ] **A5** (0,5 h) Coluna `dado_incompleto` para meses com dias sem observação · R5c
-- [ ] **A6** (0,5 h) Gráfico anual bruto × harmonizado → `reports/harmonizado_anual.png`
-- **Checkpoint 2 (A1):** sem degrau artificial em 2012 nem em jul/2002 → **avisar B**
+- [x] **A1** (1 h) Regerar a grade com colunas `satellite` (Terra/Aqua/N) e `daynight` → `grid_sat.parquet` (o `grid_monthly.parquet` antigo foi mantido para o mock) · R3
+- [x] **A2** (1 h) Máscara de fontes estáticas: células 0,02° com `type` 1/2/3 em ≥ 2 anos (qualquer sensor) → `static_mask.parquet`; aplicar na grade · R2
+- [x] **A3** (2 h) `notebooks/04_harmonizacao.ipynb`: `k_Terra` e `k_Aqua` por bloco 5° × mês (2012–2021), fallback nacional se < 30 focos · R4
+- [x] **A4** (1 h) Série final: 2001–2011 MODIS convertido (jan/2001–jun/2002 só Terra), 2012→ VIIRS real → `harmonized.parquet` · R5
+- [x] **A5** (0,5 h) Coluna `dado_incompleto` para meses com dias sem observação · R5c
+- [x] **A6** (0,5 h) Gráfico anual bruto × harmonizado → `reports/harmonizado_anual.png`
+- **Checkpoint 2 (A1):** sem degrau artificial em 2012 nem em jul/2002 → **avisar B** ✅ passou (notebook 04)
 
 ### Fase 3 — Validação · R6
-- [ ] **A7** (2 h) `notebooks/05_validacao.ipynb`: leave-one-year-out em 2012–2021; correlação mensal, erro relativo, % acerto do mês de pico → `reports/metrics.json` + figuras
-- [ ] **A8** (1 h, opcional) Testar variações e manter só se melhorar: confiança MODIS ≥ 50; `k` separado dia/noite; regressão log
-- **Checkpoint 3 (A2):** correlação ≥ 0,85 e mês de pico ≥ 80%
+- [x] **A7** (2 h) `notebooks/05_validacao.ipynb`: leave-one-year-out em 2012–2021; correlação mensal, erro relativo, % acerto do mês de pico → `reports/metrics.json` + figuras
+- [x] **A8** *(testado: k dia/noite piora as métricas → mantido o método base)* (1 h, opcional) Testar variações e manter só se melhorar: confiança MODIS ≥ 50; `k` separado dia/noite; regressão log
+- **Checkpoint 3 (A2):** correlação ≥ 0,85 e mês de pico ≥ 80% — ✅ nacional e bloco; ⚠️ célula: correlação 0,951 ok, mês de pico 72,7% (< 80%) → decisão pendente
+
+### Fase 3a — Melhoria e prova da harmonização
+- [x] **A11** Combinação Terra/Aqua pelo inverso da variância + `k` local 2° encolhido para o bloco 5° (notebook 04)
+- [x] **A12** `notebooks/07_prova_harmonizacao.ipynb`: "MODIS diz X, VIIRS diz Y" por região × mês; figura `prova_antes_depois.png`; referência NOAA-20 × S-NPP (`data/raw/noaa20/`, fora do git)
+- **Resultado:** região 2° × mês: diferença mediana 14% (MODIS cru 74%), 66% dentro de ±20%, correlação 0,992; dois VIIRS iguais: 8% / 85%
+
+- [x] **A13** Debate de métodos (3 agentes: Físico, Estatístico, Avaliador) para subir a concordância; testados com regras fixadas antes (`notebooks/exp_debate_metodos.py`): covariáveis do MODIS rejeitadas; faixa de incerteza calibrada adotada (cobre 89,9%); concordância anual 92% dentro de ±20%; 90–100% por região × mês é fisicamente inalcançável (teto entre dois VIIRS: 85%)
+- [ ] **A14** Rodar de novo o notebook 05 com o método final (hoje é a versão 1; o `metrics.json` tem uma nota sobre isso)
 
 ### Fase 3b — Ano corrente · R5b
-- [ ] **A9** (1,5 h) Pedir MAP_KEY; baixar 2026 via API do FIRMS (VIIRS S-NPP NRT); aplicar a mesma máscara e agregar; anexar ao `harmonized.parquet` com `dado_incompleto=True` no mês corrente
+- [ ] **A9** *(código pronto em `notebooks/06_dados_2026.ipynb`; falta a MAP_KEY no `.env` para baixar)* (1,5 h) Pedir MAP_KEY; baixar 2026 via API do FIRMS (VIIRS S-NPP NRT); aplicar a mesma máscara e agregar; anexar ao `harmonized.parquet` com `dado_incompleto=True` no mês corrente
 
 ### Apoio à entrega
-- [ ] **A10** (1 h) Texto da página Metodologia em inglês → `docs/metodologia.md` (método, métricas, limitações: deriva orbital, versão do `type`, foco ≠ incêndio)
+- [x] **A10** (1 h) Texto da página Metodologia em inglês → `docs/metodologia.md` (método, métricas, limitações: deriva orbital, versão do `type`, foco ≠ incêndio)
 
 ---
 
@@ -66,7 +74,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [x] **B8** (1 h) Download CSV da região (+ PNG pelo botão do Plotly) · R10
 - [x] **B9** (1 h) Aba Methodology com texto de A10, figuras e `metrics.json` · R11
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
-- [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A
+- [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A — **dado real entregue por A; ver `specs/handoff_A_para_B.md`**
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
 - [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real

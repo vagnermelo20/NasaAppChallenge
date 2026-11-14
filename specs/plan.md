@@ -36,14 +36,16 @@ CSV FIRMS (pontos) -> filtro -> célula 0,25° + mês -> contagens por sensor
    **Definição de "VIIRS":** só S-NPP (evita contar o mesmo foco duas vezes com NOAA-20).
    Bônus para a apresentação: Aqua e S-NPP passam no mesmo horário (~13:30), o que mostra que a diferença vem do sensor.
 2. **Fator por grupo:** `k_sat = soma(VIIRS) / soma(MODIS_sat)` por **satélite × bloco 5°×5° × mês do ano**,
-   usando 2012–2021. Dia/noite separado é opcional (VIIRS tem proporcionalmente mais focos à noite). Grupos com pouco fogo (< 30 focos MODIS) usam o fator nacional do mês.
+   usando 2012–2021. Dia/noite separado é opcional (VIIRS tem proporcionalmente mais focos à noite).
+   **Refinamento local (adotado):** `k_local = (ΣVIIRS_2° + 100·k_5°) / (ΣMODIS_2° + 100)` por região 2° × mês. Dia/noite separado foi testado e **rejeitado** (piorou). Grupos com pouco fogo (< 30 focos MODIS) usam o fator nacional do mês.
 3. **Série final:**
-   - 2001–2011: `harmonizado = (Terra × k_Terra + Aqua × k_Aqua) / 2` (média das duas estimativas; jan/2001–jun/2002 só Terra)
+   - 2001–2011: `harmonizado = (n_Terra + n_Aqua) / (1/k_Terra + 1/k_Aqua)` (peso pelo inverso da variância; jan/2001–jun/2002 só Terra: `n_Terra × k_Terra`)
    - 2012→hoje: `harmonizado = VIIRS` (real)
 4. **Upgrade se sobrar tempo (R4 v2):** regressão `log(VIIRS+1) ~ log(MODIS+1) + mês + bioma`.
    Só troca o método se melhorar as métricas da validação.
 
 ## Validação (R6)
+- **Prova principal (notebook 07):** mesma região × mesmo mês, MODIS convertido (fator sem o ano testado) × VIIRS real; referência natural = NOAA-20 × S-NPP.
 - Leave-one-year-out em 2012–2021: treina o `k` sem o ano X, prevê X, compara com VIIRS real.
 - Métricas: correlação, erro relativo, % de acerto do mês de pico.
 - Figura principal: série anual **bruta** (degrau em 2012) × **harmonizada** (contínua).
