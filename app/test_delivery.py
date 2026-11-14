@@ -216,9 +216,21 @@ class CalendarDataTests(unittest.TestCase):
 
 
 class ApplicationTests(unittest.TestCase):
+    def test_map_workspace_opens_first_without_hidden_calendar_rendering(self):
+        with patch('streamlit_folium.st_folium', return_value={}):
+            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
+            self.assertFalse(app.exception)
+            self.assertEqual(app.tabs[0].label, 'Fire map')
+            self.assertEqual(len(app.get('plotly_chart')), 0)
+            self.assertEqual(app.selectbox(key='fire_sensor').value, 'VIIRS S-NPP')
+            self.assertEqual(app.slider(key='fire_opacity').value, .8)
+            self.assertEqual(len(app.get('download_button')), 1)
+
     def test_example_regions_and_empty_selection(self):
         with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
+            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
+            app.session_state['main_tabs'] = 'Calendar'
+            app.run()
             for name in ['Pantanal', 'Matopiba', 'Acre']:
                 app.selectbox(key='example_region').select(name).run()
                 app.button(key='apply_example').click().run()
@@ -248,7 +260,9 @@ class ApplicationTests(unittest.TestCase):
     def test_drawing_persists_and_delete_resets_region(self):
         payload = {'all_drawings': None}
         with patch('streamlit_folium.st_folium', side_effect=lambda *args, **kwargs: payload):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
+            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
+            app.session_state['main_tabs'] = 'Calendar'
+            app.run()
             payload['all_drawings'] = [{'geometry': mapping(box(-58, -20, -55, -16))}]
             app.run()
             self.assertFalse(app.exception)
@@ -268,7 +282,9 @@ class ApplicationTests(unittest.TestCase):
     def test_coordinate_update_reset_and_download(self):
         # Leaflet is browser-only; verify Python UI behavior separately.
         with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
+            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
+            app.session_state['main_tabs'] = 'Calendar'
+            app.run()
             self.assertFalse(app.exception)
             self.assertEqual(len(app.tabs), 5)
             app.radio(key='region_mode').set_value('Lat-Lon + radius').run()

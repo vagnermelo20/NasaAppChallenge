@@ -11,6 +11,11 @@ The mock must remain untracked. It is not a validated harmonized product.
 
 ## Browser checklist
 
+The new EMBER workspace opens on Fire map. Observation sensor, period, layer
+opacity and CSV export are in the sidebar. Expand **Area & calendar filters**
+to change the area, use examples, or set calendar years. The calendar mock
+status remains visible separately from the observed NASA map.
+
 - Open `http://localhost:8501` and refresh after code changes.
 - Under **Try an example region**, apply Pantanal, Matopiba and Acre. Each is
   an illustrative 100 km circle, not an official boundary.
@@ -28,6 +33,9 @@ The mock must remain untracked. It is not a validated harmonized product.
   Change sensor/month and compare the displayed total with the observation CSV.
   Toggle **Limit to the applied region** and verify the spatial filter.
   This layer uses observed sensor-specific counts, not the harmonized mock.
+- Check the dark catalog, compact indicators, map popup and layer controls.
+  Change opacity and ensure counts do not change. On a narrow screen, confirm
+  the sidebar can be collapsed and all controls remain accessible.
 - For an empty selection, try latitude -30, longitude -35, radius 5 km.
   Confirm a clear empty-selection message and no application error.
 - Repeat at a narrow browser width or on a phone: open/close the sidebar,

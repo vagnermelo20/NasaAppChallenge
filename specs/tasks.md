@@ -68,6 +68,7 @@ B começa com um **mock** nesse formato; quando A entregar o arquivo real, B só
 - [ ] **B10** (1 h) Acabamento e acessibilidade (inglês, aviso "hotspots ≠ fires", celular)
 - [ ] **B11** (30 min) Trocar o mock pelo `harmonized.parquet` real após o Checkpoint 2 de A
 - [x] **B12** Camada de identificação de atividade de fogo solicitada pelo usuário: aba Fire map, cores/legenda, sensor/mês, detalhes e CSV por célula · complemento de R7
+- [x] **B13** Interface EMBER solicitada pelo usuário: mapa principal, catálogo lateral, tema consistente, indicadores, opacidade e carregamento condicional das abas · R7–R11
 - **Checkpoint 4 (A3):** consulta < 3 s com o arquivo real
 
 Validação da entrega B3–B5/B8 com mock: 7 testes em `app/test_delivery.py`;
@@ -107,6 +108,13 @@ não comprova ausência de fogo; revisão final de cobertura permanece pendente.
 Validação: 18 testes passaram; totais e CSV conferidos por SQL independente
 (VIIRS dez/2025: 36.722 em 4.141 células; MODIS set/2024: 155.119 em 6.359 células).
 A aparência no navegador e a interação Leaflet ainda requerem conferência manual.
+
+Redesign EMBER: Fire map é a tela inicial; o catálogo de observações e a exportação
+ficam na barra lateral. Legenda/controles acompanham o tema, com opacidade ajustável
+e popup de célula. Abas ocultas não geram mapas/gráficos desnecessários.
+Dezoito testes existentes e um novo teste de abertura/navegação passaram; cinco
+abas e opacidade conferidas via API local. O usuário escolheu fazer a revisão visual.
+As pendências científicas e a decisão de não publicar o mock foram preservadas.
 
 ---
 

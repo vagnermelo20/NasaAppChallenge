@@ -23,6 +23,11 @@ not forecast ignition or provide operational emergency alerts.
 
 ## Features
 
+The interface is branded **EMBER · Earth Fire Observatory**. It opens on a
+map-focused workspace with a dark observation catalog, compact indicators,
+layer opacity controls, a source card and a matching map legend. Calendar,
+Trends and Methodology load their content only when selected.
+
 - Select an area by drawing rectangles/polygons, or entering coordinates and radius.
 - Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.

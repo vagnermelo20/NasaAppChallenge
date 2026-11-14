@@ -92,8 +92,9 @@ def fire_legend() -> MacroElement:
         {% macro html(this, kwargs) %}
         <div role="note" aria-label="NASA FIRMS monthly hotspot count legend"
              style="position:absolute;bottom:28px;right:10px;z-index:999;
-                    background:rgba(255,255,255,.95);color:#111;padding:12px;
-                    border:1px solid #777;border-radius:6px;font:12px sans-serif;max-width:180px;">
+                    background:rgba(12,24,40,.96);color:#edf3fc;padding:14px 16px;
+                    border:1px solid #3b526c;border-radius:12px;font:12px system-ui,sans-serif;
+                    box-shadow:0 8px 30px rgba(0,0,0,.24);max-width:180px;">
           <strong>NASA FIRMS hotspots</strong><br>Detections / cell / month
           {% for color, label in this.rows %}
           <div style="margin-top:6px;display:flex;gap:8px;align-items:center;">
@@ -103,23 +104,29 @@ def fire_legend() -> MacroElement:
           {% endfor %}
           <div style="margin-top:8px;">Unfilled: not classified<br>Not burned area or fire severity</div>
         </div>
+        <style>
+        .leaflet-control-zoom a {background:#142031;color:#edf3fc;border-color:#29384d;}
+        .leaflet-control-zoom a:hover {background:#23374f;color:#88d8fa;}
+        .leaflet-control-layers {background:#142031;color:#edf3fc;border:1px solid #29384d;border-radius:8px;}
+        .leaflet-control-attribution {background:rgba(12,24,40,.9);color:#d8e5f4;}
+        .leaflet-control-attribution a {color:#88d8fa;}
+        .leaflet-tooltip {background:#101a28;color:#edf3fc;border:1px solid #45617c;border-radius:8px;padding:10px;}
+        </style>
         {% endmacro %}
     ''')
     return legend
 
 
-@st.fragment
 def show_fire_map() -> None:
-    st.subheader('NASA FIRMS · observed fire activity')
-    st.caption('Historical satellite detections, aggregated into 0.25° cells. '
-               'These sensor-specific observations are separate from the harmonized calendar.')
-    st.caption('Map date controls are independent of the calendar year range in the sidebar.')
     grid = ROOT / 'data/processed/grid_monthly.parquet'
     if not grid.exists():
         st.info('The observed monthly grid has not been supplied.')
         return
-    sensor = st.selectbox('Observation sensor', list(FIRE_SENSORS), key='fire_sensor',
-                          help='Raw counts from different sensors cannot be compared directly.')
+    with st.sidebar:
+        st.markdown('#### Observation catalog')
+        st.caption('NASA FIRMS · historical archive')
+        sensor = st.selectbox('Sensor', list(FIRE_SENSORS), key='fire_sensor', persist_state='session',
+                              help='Sensor-specific counts. Raw MODIS and VIIRS totals are not directly comparable.')
     path, version = str(grid), grid.stat().st_mtime_ns
     try:
         available = observation_months(path, version, sensor)
@@ -130,53 +137,74 @@ def show_fire_map() -> None:
         st.info('No observed months are available for this sensor.')
         return
     years = sorted(int(y) for y in available.ano.unique())
-    year = st.selectbox('Observation year (UTC)', years, index=len(years) - 1, key='fire_year')
-    months = sorted(int(m) for m in available[available.ano == year].mes)
-    month = st.selectbox('Observation month (UTC)', months, index=len(months) - 1,
-                         format_func=lambda m: MONTHS[m - 1], key='fire_month')
-    limit = st.toggle('Limit to the applied region', value=False, key='fire_limit',
-                      help='Use the region applied in Calendar. Without a selection, the entire Brazil dataset is shown.')
+    with st.sidebar:
+        with st.container(horizontal=True):
+            year = st.selectbox('Year · UTC', years, index=len(years)-1, key='fire_year', persist_state='session')
+            months = sorted(int(m) for m in available[available.ano == year].mes)
+            month = st.selectbox('Month', months, index=len(months)-1, format_func=lambda m: MONTHS[m-1],
+                                 key='fire_month', persist_state='session')
+        limit = st.toggle('Use selected area', value=False, key='fire_limit', persist_state='session',
+                          help='Filter to the area applied in Calendar; otherwise show Brazil.')
+        with st.expander('Layer appearance'):
+            opacity = st.slider('Layer opacity', .25, 1., .8, .05, key='fire_opacity', persist_state='session')
     region = st.session_state.get('regiao') if limit else None
     cells = observation_cells(path, version, sensor, year, month, region)
-    with st.container(horizontal=True):
-        st.metric('Observed hotspots', f'{cells.hotspots.sum():,.0f}')
-        st.metric('Cells with detections', f'{len(cells):,}')
-    st.caption(f'{sensor} · {year}-{month:02d} · '
-               + (st.session_state.get('region_label', 'Brazil') if region else 'Brazil · entire dataset'))
+    export = cells.assign(sensor=sensor, year=year, month=month,
+                          count_range=[FIRE_LABELS[fire_class(value)] for value in cells.hotspots])
+    with st.sidebar:
+        with st.container(border=True, key='observation_card'):
+            st.badge('Observed archive', icon=':material/satellite_alt:', color='blue')
+            st.markdown(f'**{sensor}**')
+            st.caption(f'{MONTHS[month-1]} {year} · monthly composite of detections')
+            st.write(f'**{len(cells):,}** active cells')
+            st.caption('Analysis grid 0.25° · sensor-specific observations')
+        st.download_button('Export observation cells', export.to_csv(index=False).encode('utf-8-sig'),
+                           f'firms_observed_{FIRE_SENSORS[sensor]}_{year}-{month:02d}.csv', 'text/csv',
+                           icon=':material/download:', key='fire_download', width='stretch', on_click='ignore')
+        with st.expander('Data provenance'):
+            st.caption('Real NASA FIRMS detections from the existing monthly grid. Not the calendar mock. '
+                       'Coverage and final quality review are pending. No live feed is used.')
+            st.markdown('[NASA FIRMS source](https://firms.modaps.eosdis.nasa.gov/)')
+    with st.container(horizontal=True, gap='small'):
+        for label, value, help_text in [
+            ('Observed hotspots', f'{cells.hotspots.sum():,.0f}', 'Detected hotspots in the displayed cells and month; not unique fires.'),
+            ('Active grid cells', f'{len(cells):,}', '0.25° cells with one or more detections.'),
+            ('Highest cell count', f'{cells.hotspots.max():,.0f}' if len(cells) else '—', 'Largest count in a single cell, not fire severity.'),
+        ]:
+            with st.container(border=True):
+                st.metric(label, value, help=help_text)
+    area = st.session_state.get('region_label', 'Selected area') if region else 'Brazil · national view'
+    with st.container(horizontal=True, vertical_alignment='center'):
+        st.markdown(f'**{sensor}** · {MONTHS[month-1]} {year}')
+        st.caption(area)
     if cells.empty:
-        st.info('No recorded hotspots in the selected cells and month. This does not establish that no fire occurred.')
-    view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap', prefer_canvas=True)
+        st.info('No recorded hotspots in the selected cells and month. Try another period or enlarge the area.')
+    view = folium.Map(location=[-14, -52], zoom_start=4, tiles='OpenStreetMap', prefer_canvas=True,
+                      control_scale=True)
     view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
     view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
     if not cells.empty:
-        folium.GeoJson(
-            fire_features(cells, sensor, year, month), name='NASA FIRMS activity',
-            smooth_factor=0, style_function=lambda feature: {
-                'fillColor': feature['properties']['color'], 'fillOpacity': .8,
-                'color': feature['properties']['color'], 'weight': .3},
-            highlight_function=lambda _: {'weight': 2, 'color': '#FFFFFF', 'fillOpacity': .95},
-            tooltip=folium.GeoJsonTooltip(fields=['sensor', 'period', 'hotspots', 'range'],
-                                         aliases=['Sensor', 'UTC month', 'Hotspots in cell', 'Count range']),
-        ).add_to(view)
-        if region:
-            west, south, east, north = shapely.from_wkt(region).bounds
-            view.fit_bounds([[south, west], [north, east]])
+        folium.GeoJson(fire_features(cells, sensor, year, month), name='NASA FIRMS · fire activity',
+                       smooth_factor=0, style_function=lambda feature: {
+                           'fillColor': feature['properties']['color'], 'fillOpacity': opacity,
+                           'color': feature['properties']['color'], 'weight': .25},
+                       highlight_function=lambda _: {'weight': 2, 'color': '#FFFFFF', 'fillOpacity': .95},
+                       tooltip=folium.GeoJsonTooltip(fields=['sensor', 'period', 'hotspots', 'range'],
+                                                    aliases=['Sensor', 'UTC month', 'Hotspots in cell', 'Count range']),
+                       popup=folium.GeoJsonPopup(fields=['sensor', 'period', 'hotspots', 'range'],
+                                                aliases=['Sensor', 'UTC month', 'Hotspots', 'Count range']),
+                       ).add_to(view)
+    if region:
+        west, south, east, north = shapely.from_wkt(region).bounds
+        view.fit_bounds([[south, west], [north, east]])
+    folium.LayerControl(position='topright', collapsed=True).add_to(view)
     fire_legend().add_to(view)
-    st_folium(view, height=520, use_container_width=True, key=f'fire_observations_{sensor}_{year}_{month}_{limit}_{region}',
-              returned_objects=[])
-    st.caption('Colors represent hotspot counts, not fire intensity, severity, probability or burned area. '
-               'Unfilled cells are not classified by this layer; zero detections and missing observations cannot be distinguished here. '
-               'Coverage flags and final quality review are pending from the science team.')
-    st.markdown('Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · '
-                'MODIS and VIIRS historical observations. No live feed is used.')
-    export = cells.assign(sensor=sensor, year=year, month=month,
-                          count_range=[FIRE_LABELS[fire_class(value)] for value in cells.hotspots])
-    st.download_button('Download observed map cells', export.to_csv(index=False).encode('utf-8-sig'),
-                       f'firms_observed_{FIRE_SENSORS[sensor]}_{year}-{month:02d}.csv', 'text/csv',
-                       key='fire_download', on_click='ignore')
-    with st.expander('Observed cell values'):
-        st.dataframe(export, hide_index=True, alt='NASA FIRMS observed counts for each displayed grid cell.')
-
+    st_folium(view, height=620, use_container_width=True,
+              key=f'fire_observations_{sensor}_{year}_{month}_{limit}_{region}', returned_objects=[])
+    st.caption('NASA FIRMS · detections per cell/month · unfilled cells are unclassified. '
+               'Counts do not measure fire severity or burned area. Map dates are independent of the calendar range.')
+    with st.expander('Inspect observed cell values'):
+        st.dataframe(export, hide_index=True, alt='Observed NASA FIRMS counts for each mapped cell.')
 
 def data_source() -> tuple[str, int]:
     path = REAL if REAL.exists() else MOCK
@@ -283,6 +311,8 @@ def apply_example(name: str) -> None:
     st.session_state['regiao'] = radius_polygon(lat, lon, radius).wkt
     st.session_state['region_label'] = f'{name} example · {radius:g} km radius'
     st.session_state['draft_region'] = st.session_state['regiao']
+    if st.session_state.get('main_tabs') == 'Fire map':
+        st.session_state['fire_limit'] = True
 
 
 def drawn_region(payload: dict) -> str | None:
@@ -559,37 +589,9 @@ def region_map(mode: str) -> None:
     st.caption('If the map does not load, use Lat-Lon + radius in the sidebar. The calendar works without the map.')
 
 
-def main() -> None:
-    st.set_page_config(page_title='Harmonized Burning Activity Calendar', page_icon='🌍', layout='wide')
-    st.caption('NASA SPACE APPS CHALLENGE · BRAZIL PILOT')
-    st.title('Harmonized Burning Activity Calendar')
-    st.write('Explore historical burning activity across Brazil using NASA FIRMS MODIS and VIIRS satellite detections.')
-    if not REAL.exists() and not MOCK.exists():
-        st.warning('No dataset found. Generate the development dataset to get started.')
-        st.code('.venv/Scripts/python.exe app/make_mock.py', language='bash')
-        st.stop()
-    path, version = data_source()
-    try:
-        coverage = metadata(path, version)
-        if coverage.empty:
-            raise ValueError('The data file has no observations.')
-    except (duckdb.Error, ValueError) as error:
-        st.error(f'Unable to read the dataset: {error}')
-        st.stop()
-    first_year, last_year = int(coverage.ano.min()), int(coverage.ano.max())
-    is_mock = Path(path) == MOCK
-    if is_mock:
-        st.warning('Calendar development preview — MOCK data. The provisional conversion is not validated harmonization. '
-                   'Fire map displays the separate sensor-specific observations.')
-    st.session_state.setdefault('regiao', None)
-    st.session_state.setdefault('region_label', 'Brazil · entire dataset')
-    st.session_state.setdefault('map_revision', 0)
-    st.session_state.setdefault('map_seed_wkt', None)
-    st.session_state.setdefault('latitude', -18.0)
-    st.session_state.setdefault('longitude', -56.5)
-    st.session_state.setdefault('radius', 50.0)
-    with st.sidebar:
-        st.header('Explore activity')
+def area_controls(first_year: int, last_year: int, expanded: bool) -> str:
+    with st.expander('Area & calendar filters', expanded=expanded):
+        st.caption('Region and calendar period')
         mode = st.radio('Region selection', ['Draw on map', 'Lat-Lon + radius'], key='region_mode',
                         help='Draw and apply a shape, or enter coordinates and click Update. Coordinates work without loading the map.')
         if mode != st.session_state.get('previous_mode'):
@@ -631,99 +633,175 @@ def main() -> None:
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')
-    calendar_tab, fire_tab, trends, methodology, about = st.tabs(
-        ['Calendar', 'Fire map', 'Trends', 'Methodology', 'About'], key='main_tabs', on_change='rerun')
+
+    return mode
+
+
+def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
+                  first_year: int, last_year: int):
+    st.subheader('Select an area')
+    if (mode == 'Draw on map' or st.toggle('Show map preview', value=False, key='show_map')):
+        region_map(mode)
+    else:
+        st.caption('Set coordinates and radius in the sidebar, then click Update. Map preview is optional.')
+    start, end = st.session_state['applied_years']
+    start, end = max(first_year, start), min(last_year, end)
+    if start > end:
+        start, end = first_year, last_year
+    region_wkt = st.session_state['regiao']
+    st.caption(f"Applied region: {st.session_state['region_label']} · {start}–{end}")
+    begin = perf_counter()
+    with st.spinner('Loading monthly activity…'):
+        series = serie_regiao(region_wkt, start, end)
+    elapsed = perf_counter() - begin
+    cells = celulas()
+    if region_wkt:
+        selected_count = int(shapely.contains_xy(shapely.from_wkt(region_wkt),
+                                                 cells.lon + .125, cells.lat + .125).sum())
+    else:
+        selected_count = len(cells)
+    st.caption(f'{selected_count:,} grid-cell centers selected · Values are VIIRS-equivalent hotspots.')
+    st.subheader('Burning activity calendar')
+    if selected_count == 0:
+        st.warning('No grid-cell centers from the dataset fall inside this selection. '
+                   'Try a larger radius or an example region. Zero totals here do not establish that no fire occurred.')
+    elif series.focos.fillna(0).sum() == 0:
+        st.info('No detections in the selected cells and period. Try a larger region; small areas may contain no cell centers.')
+    anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode', persist_state='session',
+                        help='Compare each complete month with the same month in earlier complete years in the selected period.')
+    show_values = st.toggle('Show values in cells', value=False, key='cell_values', persist_state='session',
+                            help='Keep off for a clearer calendar on small screens. Hover, tap a cell, or open Monthly values for exact numbers.')
+    figure = calendar_figure(series, anomaly=anomaly, show_values=show_values)
+    figure.update_layout(title=f"{'MOCK · ' if is_mock else ''}{st.session_state['region_label']} · {start}–{end}")
+    st.plotly_chart(figure, key='calendar', width='stretch',
+                    alt='Monthly burning activity by year in the selected region, in VIIRS-equivalent hotspots.',
+                    config={'displaylogo': False, 'toImageButtonOptions': {
+                        'format': 'png', 'filename': f"{'mock_' if is_mock else ''}calendar_{start}-{end}"}})
+    st.caption('* Incomplete data · — Outside available coverage. Before 2012: MODIS converted to VIIRS scale.')
+    if anomaly:
+        st.caption('Blank cells have incomplete data, no earlier baseline, or a zero median. The color scale is centered on zero.')
+    show_comparison(series, 'MOCK · ' if is_mock else '')
+    complete = series[~series.incompleto & series.focos.notna()]
+    seasonal = complete.groupby('mes').focos.median()
+    annual = series.groupby('ano').focos.sum(min_count=1)
+    complete_years = series.groupby('ano').apply(
+        lambda group: group.focos.notna().all() and not group.incompleto.any())
+    annual = annual[complete_years]
+    with st.container(horizontal=True):
+        st.metric('Peak seasonal month', MONTHS[int(seasonal.idxmax()) - 1]
+                  if not seasonal.empty and seasonal.max() > 0 else 'No peak',
+                  help='Highest monthly median across complete months in the selected years.')
+        st.metric('Highest-activity year', str(annual.idxmax())
+                  if not annual.empty and annual.max() > 0 else 'No complete peak',
+                  help='Highest annual total among complete years in the selected range.')
+    export = export_table(series, coverage, region_wkt, 'mock' if is_mock else 'harmonized')
+    region_name = 'brazil' if region_wkt is None else ('radius' if 'radius' in st.session_state['region_label'] else 'drawn_area')
+    today = datetime.now(ZoneInfo('America/Fortaleza')).date().isoformat()
+    filename = f"{'mock_' if is_mock else ''}hotspots_calendar_{start}-{end}_{region_name}_{today}.csv"
+    st.download_button('Download monthly CSV', export.to_csv(index=False).encode('utf-8-sig'),
+                       filename, 'text/csv', key='download_csv', on_click='ignore')
+    st.caption('CSV anomalies use the median for the same month in earlier complete years within the selected range. '
+               'A zero or missing baseline leaves the anomaly blank. Use the chart camera button to save a PNG.')
+    with st.expander('Monthly values and coverage notes'):
+        st.dataframe(export.drop(columns='region_wkt'), hide_index=True,
+                     alt='Monthly values available in the CSV download.')
+        st.caption('Within dataset coverage, missing cell-month rows are treated as zero under the data contract. '
+                   'A completely missing observation month cannot be distinguished without additional coverage metadata.')
+
+    return elapsed
+
+
+def main() -> None:
+    st.set_page_config(page_title='EMBER · Fire activity observatory', page_icon=':material/public:',
+                       layout='wide', initial_sidebar_state='expanded')
+    st.html('''<style>
+        .st-key-observation_card {
+            background:linear-gradient(135deg,#172b40,#122033);
+            border-left:3px solid #62c7f2;
+        }
+        .st-key-brand_block h2 {letter-spacing:.15em;font-weight:750;}
+        .st-key-brand_block p {letter-spacing:.12em;font-size:.72rem;}
+        </style>''')
+    if not REAL.exists() and not MOCK.exists():
+        st.warning('Generate the local development dataset to open the workspace.')
+        st.code('.venv/Scripts/python.exe app/make_mock.py', language='bash')
+        st.stop()
+    path, version = data_source()
+    try:
+        coverage = metadata(path, version)
+        if coverage.empty:
+            raise ValueError('The dataset has no observations.')
+    except (duckdb.Error, ValueError) as error:
+        st.error(f'Unable to open the workspace: {error}')
+        st.stop()
+    first_year, last_year = int(coverage.ano.min()), int(coverage.ano.max())
+    is_mock = Path(path) == MOCK
+    for key, value in [('regiao', None), ('region_label', 'Brazil · entire dataset'),
+                       ('map_revision', 0), ('map_seed_wkt', None), ('latitude', -18.0),
+                       ('longitude', -56.5), ('radius', 50.0)]:
+        st.session_state.setdefault(key, value)
+    active_view = st.session_state.get('main_tabs', 'Fire map')
+    with st.sidebar:
+        with st.container(key='brand_block'):
+            st.markdown('## :material/public: EMBER')
+            st.caption('EARTH FIRE OBSERVATORY')
+        mode = area_controls(first_year, last_year, expanded=active_view in ('Calendar', 'Trends'))
+        with st.expander('Science status'):
+            st.badge('Observed FIRMS grid available', color='blue')
+            st.badge('Calendar mock' if is_mock else 'Harmonized dataset supplied', color='orange' if is_mock else 'green')
+            st.caption('Historical observations. Final calibration, quality review and public deployment remain separate deliverables.')
+    with st.container(horizontal=True, vertical_alignment='center'):
+        with st.container(width='stretch'):
+            st.subheader('Fire activity workspace')
+            st.caption('NASA FIRMS observations · Brazil · Historical patterns')
+        st.badge('Archive', icon=':material/satellite_alt:', color='blue')
+        st.badge('Calendar · mock' if is_mock else 'Harmonized calendar', color='orange' if is_mock else 'green')
+    fire_tab, calendar_tab, trends, methodology, about = st.tabs(
+        ['Fire map', 'Calendar', 'Trends', 'Methodology', 'About'], default='Fire map',
+        key='main_tabs', on_change='rerun')
+    elapsed = None
     if not calendar_tab.open:
-        # Preserve the editable shapes when the browser component leaves the page.
         st.session_state['map_seed_wkt'] = st.session_state.get('draft_region')
         st.session_state.pop('last_map_event', None)
-    with calendar_tab:
-        st.subheader('Select an area')
-        if calendar_tab.open and (mode == 'Draw on map' or st.toggle('Show map preview', value=False, key='show_map')):
-            region_map(mode)
-        else:
-            st.caption('Set coordinates and radius in the sidebar, then click Update. Map preview is optional.')
-        start, end = st.session_state['applied_years']
-        start, end = max(first_year, start), min(last_year, end)
-        if start > end:
-            start, end = first_year, last_year
-        region_wkt = st.session_state['regiao']
-        st.caption(f"Applied region: {st.session_state['region_label']} · {start}–{end}")
-        begin = perf_counter()
-        with st.spinner('Loading monthly activity…'):
-            series = serie_regiao(region_wkt, start, end)
-        elapsed = perf_counter() - begin
-        cells = celulas()
-        if region_wkt:
-            selected_count = int(shapely.contains_xy(shapely.from_wkt(region_wkt),
-                                                     cells.lon + .125, cells.lat + .125).sum())
-        else:
-            selected_count = len(cells)
-        st.caption(f'{selected_count:,} grid-cell centers selected · Values are VIIRS-equivalent hotspots.')
-        st.subheader('Burning activity calendar')
-        if selected_count == 0:
-            st.warning('No grid-cell centers from the dataset fall inside this selection. '
-                       'Try a larger radius or an example region. Zero totals here do not establish that no fire occurred.')
-        elif series.focos.fillna(0).sum() == 0:
-            st.info('No detections in the selected cells and period. Try a larger region; small areas may contain no cell centers.')
-        anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode', persist_state='session',
-                            help='Compare each complete month with the same month in earlier complete years in the selected period.')
-        show_values = st.toggle('Show values in cells', value=False, key='cell_values', persist_state='session',
-                                help='Keep off for a clearer calendar on small screens. Hover, tap a cell, or open Monthly values for exact numbers.')
-        figure = calendar_figure(series, anomaly=anomaly, show_values=show_values)
-        figure.update_layout(title=f"{'MOCK · ' if is_mock else ''}{st.session_state['region_label']} · {start}–{end}")
-        st.plotly_chart(figure, key='calendar', width='stretch',
-                        alt='Monthly burning activity by year in the selected region, in VIIRS-equivalent hotspots.',
-                        config={'displaylogo': False, 'toImageButtonOptions': {
-                            'format': 'png', 'filename': f"{'mock_' if is_mock else ''}calendar_{start}-{end}"}})
-        st.caption('* Incomplete data · — Outside available coverage. Before 2012: MODIS converted to VIIRS scale.')
-        if anomaly:
-            st.caption('Blank cells have incomplete data, no earlier baseline, or a zero median. The color scale is centered on zero.')
-        if calendar_tab.open:
-            show_comparison(series, 'MOCK · ' if is_mock else '')
-        complete = series[~series.incompleto & series.focos.notna()]
-        seasonal = complete.groupby('mes').focos.median()
-        annual = series.groupby('ano').focos.sum(min_count=1)
-        complete_years = series.groupby('ano').apply(
-            lambda group: group.focos.notna().all() and not group.incompleto.any())
-        annual = annual[complete_years]
-        with st.container(horizontal=True):
-            st.metric('Peak seasonal month', MONTHS[int(seasonal.idxmax()) - 1]
-                      if not seasonal.empty and seasonal.max() > 0 else 'No peak',
-                      help='Highest monthly median across complete months in the selected years.')
-            st.metric('Highest-activity year', str(annual.idxmax())
-                      if not annual.empty and annual.max() > 0 else 'No complete peak',
-                      help='Highest annual total among complete years in the selected range.')
-        export = export_table(series, coverage, region_wkt, 'mock' if is_mock else 'harmonized')
-        region_name = 'brazil' if region_wkt is None else ('radius' if 'radius' in st.session_state['region_label'] else 'drawn_area')
-        today = datetime.now(ZoneInfo('America/Fortaleza')).date().isoformat()
-        filename = f"{'mock_' if is_mock else ''}hotspots_calendar_{start}-{end}_{region_name}_{today}.csv"
-        st.download_button('Download monthly CSV', export.to_csv(index=False).encode('utf-8-sig'),
-                           filename, 'text/csv', key='download_csv', on_click='ignore')
-        st.caption('CSV anomalies use the median for the same month in earlier complete years within the selected range. '
-                   'A zero or missing baseline leaves the anomaly blank. Use the chart camera button to save a PNG.')
-        with st.expander('Monthly values and coverage notes'):
-            st.dataframe(export.drop(columns='region_wkt'), hide_index=True,
-                         alt='Monthly values available in the CSV download.')
-            st.caption('Within dataset coverage, missing cell-month rows are treated as zero under the data contract. '
-                       'A completely missing observation month cannot be distinguished without additional coverage metadata.')
     with fire_tab:
         if fire_tab.open:
             show_fire_map()
+    with calendar_tab:
+        if calendar_tab.open:
+            if is_mock:
+                st.warning('Development calendar — provisional conversion, not validated harmonization. '
+                           'The Fire map uses separate observed counts.')
+            elapsed = calendar_view(mode, coverage, path, is_mock, first_year, last_year)
     with trends:
-        st.subheader('Historical trends')
         if trends.open:
+            if is_mock:
+                st.warning('Development trends use the provisional calendar mock.')
+            start, end = st.session_state['applied_years']
+            start, end = max(first_year, start), min(last_year, end)
+            if start > end:
+                start, end = first_year, last_year
+            begin = perf_counter()
+            series = serie_regiao(st.session_state['regiao'], start, end)
+            elapsed = perf_counter() - begin
+            st.subheader('Historical trends')
+            st.caption(f"{st.session_state['region_label']} · {start}–{end}")
             show_trends(series, 'MOCK · ' if is_mock else '')
     with methodology:
         if methodology.open:
             show_methodology(is_mock)
     with about:
-        st.subheader('About this project')
-        st.write('A NASA Space Apps prototype for exploring burning activity calendars from MODIS and VIIRS active fire hotspots.')
-        st.markdown('Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/)')
-    st.divider()
+        if about.open:
+            st.subheader('A consistent view of burning activity')
+            st.write('EMBER is a NASA Space Apps prototype for exploring where and when satellite-detected burning activity occurs.')
+            st.markdown('**Observed map:** sensor-specific NASA FIRMS detections.\n\n'
+                        '**Calendar:** harmonized-series interface, currently a clearly labeled development mock until final data arrive.\n\n'
+                        '**Built for:** fire managers, researchers and land managers exploring historical patterns.')
+            st.markdown('[NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · [Project repository](https://github.com/vagnermelo20/NasaAppChallenge)')
     st.caption('Hotspots are satellite detections, not number of fires or burned area.')
-    st.caption(f"Calendar data: {Path(path).name} · {'MOCK — development only' if is_mock else 'Harmonized dataset'} · Query: {elapsed:.3f} s")
+    if elapsed is not None:
+        st.caption(f"Calendar source: {Path(path).name} · Query {elapsed:.3f} s · UTC months · 0.25° grid")
+    else:
+        st.caption('NASA FIRMS historical observations · Sensor-specific counts · Final scientific validation pending')
 
 
 if __name__ == '__main__':
