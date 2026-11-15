@@ -1,6 +1,8 @@
-﻿# Harmonized Burning Activity Calendar — MODIS × VIIRS
+# Harmonized Burning Activity Calendar — MODIS × VIIRS
 
 NASA Space Apps Challenge 2026 · Brazil pilot
+
+**Live app:** https://ember-fire-calendar.streamlit.app
 
 An interactive web application for exploring when burning activity occurs in a
 selected region. It combines a monthly calendar, historical comparisons,
@@ -199,4 +201,4 @@ The original notebooks and figures are preserved for the scientific work and pre
 - **Person B — Application:** regional queries, visualization, accessibility and exports.
 - **Joint delivery:** deployment, final credits, presentation, video and Space Apps submission.
 
-Participant names and the public app link will be finalized by the group before submission.
+Public app: https://ember-fire-calendar.streamlit.app · Participant names will be finalized by the group before submission.
