@@ -73,5 +73,6 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (tarde): série diária/semanal (notebooks/09_serie_diaria.py, cascata S-NPP → NOAA-20 → MODIS convertido; soma diária = mensal) e visão Day/Week/Month no Calendar do app. Falta: NOAA-20 de 2026 pela API e faixa de incerteza diária.
 - 14/11/2026: Fases 1–3, prova, base de focos, publicação, revisões independentes (ver specs/tasks.md).
 - 15/11/2026: cores azul→vermelho, textos simples, filtro de data no mapa, mapa único; regras "só main" e "sem Claude nos commits"; este arquivo criado.

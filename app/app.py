@@ -1272,6 +1272,66 @@ def show_area_hotspots(series: pd.DataFrame, region_wkt: str | None) -> None:
                'Each red dot is one satellite detection of unusual heat; click a dot for date, time, satellite and fire power.')
 
 
+SOURCE_COLORS = {'snpp': '#F28E2B', 'noaa20': '#B07AA1', 'modis_convertido': '#9AA5B1'}
+SOURCE_NAMES = {'snpp': 'VIIRS S-NPP', 'noaa20': 'VIIRS NOAA-20 (fills S-NPP gaps)', 'modis_convertido': 'MODIS converted'}
+
+
+@st.cache_data
+def timescale_data(scale: str, region_wkt: str | None, day_from: date, day_to: date) -> pd.DataFrame:
+    cells = celulas()
+    if region_wkt:
+        cells = cells[shapely.contains_xy(shapely.from_wkt(region_wkt), cells.lon + .125, cells.lat + .125)]
+    with duckdb.connect() as con:
+        con.register('sel', cells[['lat', 'lon']])
+        if scale == 'Day':
+            files = [str(ROOT / f'data/processed/diario/diario_{y}.parquet') for y in range(day_from.year, day_to.year + 1)
+                     if (ROOT / f'data/processed/diario/diario_{y}.parquet').exists()]
+            if not files:
+                return pd.DataFrame()
+            return con.execute('SELECT data AS period, fonte, sum(focos) AS hotspots FROM read_parquet(?) d JOIN sel USING (lat, lon) '
+                               'WHERE data BETWEEN ? AND ? GROUP BY ALL ORDER BY 1', [files, day_from, day_to]).df()
+        return con.execute('SELECT semana AS period, bool_or(semana_incompleta) AS incomplete, sum(focos) AS hotspots '
+                           'FROM read_parquet(?) w JOIN sel USING (lat, lon) WHERE semana BETWEEN ? AND ? GROUP BY 1 ORDER BY 1',
+                           [str(ROOT / 'data/processed/semanal.parquet'), day_from, day_to]).df()
+
+
+def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
+    if not (ROOT / 'data/processed/semanal.parquet').exists():
+        return
+    st.markdown('#### Day, week or month')
+    scale = st.segmented_control('Time scale', ['Day', 'Week', 'Month'], default='Week', required=True, key='timescale')
+    newest = date.today() - timedelta(days=1)
+    if scale == 'Month':
+        data = series.assign(period=pd.to_datetime(dict(year=series.ano, month=series.mes, day=1)))
+        fig = px.bar(data, x='period', y='focos', color_discrete_sequence=['#F46D43'])
+        note = 'Harmonized monthly series (same numbers as the calendar).'
+    else:
+        span = 90 if scale == 'Day' else 730
+        picked = st.date_input('Period', value=(newest - timedelta(days=span), newest), min_value=date(2001, 1, 1),
+                               max_value=newest, key=f'timescale_{scale}')
+        if not isinstance(picked, (tuple, list)) or len(picked) != 2:
+            st.info('Choose a start and an end date.'); return
+        data = timescale_data(scale, region_wkt, picked[0], picked[1])
+        if data.empty:
+            st.info('No hotspots in this area and period.'); return
+        if scale == 'Day':
+            fig = px.bar(data, x='period', y='hotspots', color='fonte', color_discrete_map=SOURCE_COLORS,
+                         labels={'fonte': 'Satellite used'})
+            fig.for_each_trace(lambda t: t.update(name=SOURCE_NAMES.get(t.name, t.name)))
+            note = ('Each day uses the best satellite available: VIIRS S-NPP; if it has no data that day, VIIRS NOAA-20; '
+                    'before 2012, MODIS converted to the VIIRS scale. Days with no satellite at all are left empty (not zero fire). '
+                    'Daily values are noisier than monthly ones (clouds, few overpasses).')
+        else:
+            data['status'] = np.where(data.incomplete, 'Week with a missing satellite day', 'Complete week')
+            fig = px.bar(data, x='period', y='hotspots', color='status',
+                         color_discrete_map={'Complete week': '#F46D43', 'Week with a missing satellite day': '#9AA5B1'})
+            note = 'Weekly totals (weeks start on Monday). Grey bars had at least one day without satellite data.'
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=None, yaxis_title='Hotspots (VIIRS scale)',
+                      legend_title_text=None)
+    st.plotly_chart(fig, key='timescale_chart', width='stretch')
+    st.caption(note)
+
+
 def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
                   first_year: int, last_year: int):
     st.subheader('Select an area')
@@ -1303,6 +1363,7 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
     if selected_count:
         show_region_summary(series, selected_count, start)
         show_harmonization_demo(series, region_wkt, start, end)
+        show_timescales(series, region_wkt)
     st.subheader('Burning activity calendar')
     if selected_count == 0:
         st.warning('No grid-cell centers from the dataset fall inside this selection. '
