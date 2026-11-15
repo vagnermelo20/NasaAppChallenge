@@ -66,6 +66,12 @@ Objetivo: escolher um dia e ver um número de focos confiável, na escala VIIRS,
 - D5 (2 h) App: gráfico diário da área/intervalo, cor por fonte, faixa de incerteza, opção de média de 7 dias.
 - D6 (1 h) Validação e texto honesto: concordância por dia e por 7 dias ao lado da mensal.
 
+## Resultado do teste v3 (15/11/2026, notebooks/exp_v3_conversao.py)
+Mesma régua (ano deixado de fora, região 2° × mês, VIIRS ≥ 100), comparado a um v2 simplificado (k bloco × mês, sem refino 2°):
+v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile mapping 59,9% (erro anual 2,9%, pior).
+β nacional = 1,06 → a relação VIIRS×MODIS é praticamente **proporcional**; a hipótese "k muda com o nível de fogo" foi **rejeitada**.
+O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
+
 ## Diário
 - 14/11/2026: Fases 1–3, prova, base de focos, publicação, revisões independentes (ver specs/tasks.md).
 - 15/11/2026: cores azul→vermelho, textos simples, filtro de data no mapa, mapa único; regras "só main" e "sem Claude nos commits"; este arquivo criado.
