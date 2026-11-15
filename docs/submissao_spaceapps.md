@@ -23,14 +23,13 @@ TODO — public link to the 7-slide deck or the 30-second video (English, or Eng
 ### What exactly does it do?
 EMBER is a web app with two tabs.
 
-**Map.** A satellite map of NASA FIRMS hot spots, from the latest day to any period since January 2001. From far away the hot spots appear as orange/yellow glowing areas; when you zoom in to a smaller area, every hot spot on screen is drawn as a dot, with no cap, loaded on demand so the map stays fast. Clicking a dot shows which satellite saw it, when (Brasília time) and how strong its heat was (fire radiative power, and its percentile among all hot spots of that satellite in Brazil). The user chooses an area by drawing a box or shape on the same map, or by typing a latitude, longitude and distance in km. For that area EMBER shows:
-- every hot spot in it on the chosen dates, as a table and a CSV download (no row limit);
+**Map.** A satellite map of NASA FIRMS hot spots, from the latest day to any period since January 2001. From far away the hot spots appear as orange/yellow glowing areas measured on the same unified scale as the rest of the app, with a fixed ruler, so September 2005 and September 2024 can be compared directly on the map; when you zoom in to a smaller area, every hot spot on screen is drawn as a dot, with no cap, loaded on demand so the map stays fast. Clicking a dot shows when it was seen (Brasília time) and how strong its heat was, as a percentile that is comparable across the whole record. The app never asks the user to think about sensors: it shows only the unified record. The user chooses an area by drawing a box or shape on the same map, or by typing a latitude, longitude and distance in km. For that area EMBER shows:
+- every hot spot in it on the chosen dates, as a table and a CSV download (no row limit), with each hot spot's weight on the common scale;
 - plain-language sentences: fire season, the worst month, when to get ready, the worst year, and whether the last full month was above or below normal;
 - a year × month fire calendar (blue = few, red = many), optionally as % above or below a usual year;
 - hot spots per day, week or month, on the same harmonized scale;
 - a "usual year" chart (seasonality), hot spots per year, and the last full month compared with the same month in every other year;
-- a switch that shows the record **without** and **with** harmonization, so anyone can see the false 2012 jump disappear;
-- the calibrated uncertainty for years before 2012, and a monthly CSV.
+- a monthly CSV.
 
 **How it works.** The project explained in seven simple steps for non-specialists.
 

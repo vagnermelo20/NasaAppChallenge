@@ -20,7 +20,7 @@ from app.app import (anomaly_values, cached_series, calendar_figure, complete_mo
                      data_source, drawn_region, export_table, latest_comparison, metadata,
                      hotspot_locations, add_hotspot_locations, map_legend, season_text,
                      area_sentences, search_hotspots, point_export, interval_coverage, heat_cells,
-                     radius_polygon, search_table, add_heat, group_points, view_box, dots_in_view, with_heat_rank,
+                     radius_polygon, search_table, add_heat, heat_top, view_box, dots_in_view, with_heat_rank,
                      map_summary, heat_square)
 
 
@@ -74,7 +74,8 @@ class CalendarDataTests(unittest.TestCase):
             export = point_export(points)
             self.assertEqual(export.time_utc.tolist(), ['13:29', '00:05'])
             decoded = pd.read_csv(io.StringIO(export.to_csv(index=False)))
-            self.assertEqual(decoded.harmonized_weight.sum(), 3.25)
+            self.assertEqual(decoded.hotspots_common_scale.sum(), 3.25)       # unified: no satellite column in the CSV
+            self.assertNotIn('satellite', decoded.columns)
             clipped, _ = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
                                          'VIIRS S-NPP', box(-56.5, -18.5, -56, -18).wkt)
             self.assertEqual(len(clipped), 2)
@@ -90,9 +91,10 @@ class CalendarDataTests(unittest.TestCase):
             newest, _ = search_hotspots(tuple(files), date(2024, 1, 1), date(2025, 12, 31),
                                         'All available sensors', None, newest_first=True)
             self.assertEqual(str(newest.data.iloc[0])[:10], '2025-01-02')        # long periods are allowed
-            total, cells = map_summary(tuple(files), date(2024, 1, 1), date(2025, 12, 31), .5)
-            self.assertEqual(total, 4)
-            self.assertEqual(int(cells.n.sum()), 4)
+            common, total, cells = map_summary(tuple(files), date(2024, 1, 1), date(2025, 12, 31), .5)
+            self.assertEqual(total, 4)                                   # satellite detections
+            self.assertEqual(common, 1. + 2.25 + 1. + 2.25)              # common scale: sum of harmonized weights
+            self.assertEqual(cells.n.sum(), common)
             screen = view_box({'_southWest': {'lat': -18.5, 'lng': -56.5}, '_northEast': {'lat': -18.0, 'lng': -56.0}})
             count, dots = dots_in_view(tuple(files), date(2024, 1, 1), date(2025, 12, 31), screen)
             self.assertEqual((count, len(dots)), (2, 2))                          # all dots on screen, no cap
@@ -277,9 +279,9 @@ class SimpleMapTests(unittest.TestCase):
         self.assertIn('[-56.41, -18.19]', html)
         self.assertIn('02 Nov 2026, 12:30', html)                     # 15:30 UTC -> Brasília time
         self.assertIn('31 Oct 2026, 23:00', html)                     # crossing midnight
-        for text in ['Seen by', 'When', 'Heat strength', 'stronger than']:
+        for text in ['When', 'Heat strength', 'stronger than']:
             self.assertIn(text, html)
-        for removed in ['night pass', 'common scale', 'square', 'normal']:
+        for removed in ['Seen by', 'MODIS', 'VIIRS', 'older', 'satellite', 'night pass', 'square', 'normal']:
             self.assertNotIn(removed, html)
         self.assertIn('click it', map_legend())
 
@@ -298,9 +300,6 @@ class SimpleMapTests(unittest.TestCase):
         self.assertEqual(area_sentences(series.assign(focos=0.)), [])
 
     def test_far_glow_near_dots(self):
-        points = pd.DataFrame({'lat': [-10.01, -10.02, -20.], 'lon': [-50.01, -50.02, -45.],
-                               'data': pd.to_datetime(['2026-11-02'] * 3), 'hora_utc': [100] * 3,
-                               'satelite': ['S-NPP'] * 3})
         grouped = pd.DataFrame({'lat': [-10., -20.], 'lon': [-50., -45.], 'n': [2, 1]})
         cells = heat_cells(grouped)
         self.assertEqual(len(cells), 2)
@@ -308,7 +307,10 @@ class SimpleMapTests(unittest.TestCase):
         self.assertEqual(heat_cells(grouped.iloc[:0]), [])
         self.assertEqual([heat_square(date(2026, 1, 1), d) for d in [date(2026, 1, 31), date(2027, 1, 1), date(2030, 1, 1)]],
                          [.05, .1, .2])
-        self.assertEqual(int(group_points(points).n.sum()), 3)
+        week, month = heat_top(date(2005, 9, 1), date(2005, 9, 7), .05), heat_top(date(2005, 9, 1), date(2005, 9, 30), .05)
+        self.assertEqual((week, month), (14., 60.))                     # fixed ruler: same dates -> same scale any year
+        self.assertEqual(heat_top(date(2024, 9, 1), date(2024, 9, 30), .05), month)
+        self.assertEqual(heat_cells(grouped, top=4.), [[-10.0, -50.0, .5], [-20.0, -45.0, .25]])
         import folium
         view = folium.Map(tiles=None)
         add_heat(view, grouped)
@@ -328,7 +330,7 @@ class SimpleMapTests(unittest.TestCase):
         table = search_table(pd.DataFrame({'lat': [-30.12345], 'lon': [-55.], 'data': pd.to_datetime(['2026-11-02']),
                                            'hora_utc': [130], 'satelite': ['Aqua'], 'frp': [12.34]}))
         self.assertEqual(table.iloc[0]['When (Brasília time)'], pd.Timestamp('2026-11-01 22:30'))
-        self.assertIn('older satellite', table.iloc[0]['Seen by'])
+        self.assertEqual(list(table.columns), ['When (Brasília time)', 'Latitude', 'Longitude'])   # no satellite
 
 def app_test():
     return AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=60)
@@ -345,7 +347,7 @@ class ApplicationTests(unittest.TestCase):
             self.assertEqual(len(app.get('download_button')), 1)
             self.assertTrue(app.button(key='apply_map').disabled)
             text = ' '.join(m.value for m in app.markdown) + ' '.join(c.value for c in app.caption)
-            for jargon in ['UTC', '0.25°', 'VIIRS-equivalent', 'A2', 'grid cell']:
+            for jargon in ['UTC', '0.25°', 'VIIRS', 'MODIS', 'older satellite', 'newer satellite', 'A2', 'grid cell']:
                 self.assertNotIn(jargon, text)
 
     def test_drawing_persists_and_delete_resets_region(self):
