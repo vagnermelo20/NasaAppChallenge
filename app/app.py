@@ -29,7 +29,7 @@ EXAMPLES = {
     'Matopiba': (-10.0, -46.0, 100.0),
     'Acre': (-9.0, -70.0, 100.0),
 }
-FIRE_COLORS = ['#440154', '#3B528B', '#21918C', '#5EC962', '#FDE725']
+FIRE_COLORS = ['#2C7BB6', '#ABD9E9', '#FFFFBF', '#FDAE61', '#D7191C']   # blue (few) -> red (many)
 FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
 FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
 MAP_BASES = {
@@ -150,7 +150,7 @@ def add_hotspot_locations(view: folium.Map, points: pd.DataFrame, opacity: float
          'properties': {}} for lat, lon in points[['lat', 'lon']].itertuples(index=False, name=None)]}
     if data['features']:
         folium.GeoJson(data, name='NASA FIRMS hotspot locations',
-                       marker=folium.CircleMarker(radius=1.6, stroke=False, fill=True,
+                       marker=folium.CircleMarker(radius=3, stroke=True, color='#FFFFFF', weight=0.6, fill=True,
                                                   fill_color='#FF241C', fill_opacity=opacity),
                        interactive=False).add_to(view)
 
@@ -455,6 +455,8 @@ def show_fire_map() -> None:
     if available.empty:
         st.info('No observed months are available for this sensor.')
         return
+    hoje = datetime.utcnow()
+    available = available[~((available.ano == hoje.year) & (available.mes == hoje.month))]   # current month is still filling in
     years = sorted(int(y) for y in available.ano.unique())
     with st.sidebar:
         with st.container(horizontal=True):
@@ -467,7 +469,7 @@ def show_fire_map() -> None:
         visual_mode = st.segmented_control('Display style', ['Hotspot locations', 'Analysis grid'],
                                            default='Hotspot locations', required=True, key='fire_visual_mode',
                                            width='stretch', persist_state='session',
-                                           help='Red dots show recorded detection coordinates. Analysis grid shows monthly activity in 0.25° cells.')
+                                           help='Each red dot is one place where a satellite saw an unusually hot spot (one 375 m satellite pixel). Zoom in to separate them. Analysis grid groups the dots into ~28 km squares.')
         with st.expander('Layer appearance'):
             compact_map = st.toggle('Compact map', value=False, key='fire_compact_map', persist_state='session',
                                     help='Use a shorter map on small screens. All data remain available in the tables and CSV downloads.')
@@ -741,7 +743,7 @@ def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bo
             if flags.loc[year, month] and pd.notna(shown.loc[year, month]):
                 labels.loc[year, month] += '*'
     fig = px.imshow(shown.to_numpy(), x=MONTHS, y=values.index.astype(str),
-                    color_continuous_scale='PuOr' if anomaly else 'viridis', aspect='auto',
+                    color_continuous_scale='RdBu_r' if anomaly else 'RdYlBu_r', aspect='auto',
                     labels={'x': 'Month (UTC)', 'y': 'Year',
                             'color': 'Anomaly (%)' if anomaly else 'Hotspots / month'})
     if anomaly:
@@ -904,13 +906,13 @@ def show_comparison(series: pd.DataFrame, prefix: str) -> None:
     comparisons = series[(series.mes == month) & series.focos.notna()].sort_values('ano')
     fig = go.Figure(go.Bar(
         x=comparisons.ano, y=comparisons.focos,
-        marker_color=['#35B779' if y == year else '#31688E' for y in comparisons.ano],
+        marker_color=['#D7191C' if y == year else '#4A90C2' for y in comparisons.ano],
         marker_pattern_shape=['/' if flag else '' for flag in comparisons.incompleto],
         name='Hotspots', hovertemplate='Year: %{x}<br>Hotspots: %{y:,.1f}<extra></extra>'))
     if pd.notna(summary['median']):
         fig.add_hline(y=float(summary['median']), line_dash='dash',
-                      annotation_text='Earlier-year median')
-    fig.update_layout(title=f'{prefix}{MONTHS[month - 1]} across years',
+                      annotation_text='Usual level (median of earlier years)')
+    fig.update_layout(title=f'{prefix}Is {MONTHS[month - 1]} {year} above or below the usual level? (red bar = {year})',
                       xaxis_title='Year', yaxis_title='VIIRS-equivalent hotspots / month', height=340)
     st.plotly_chart(fig, key='historical_comparison', alt='Same-month activity across years, with latest year highlighted and prior-year median.',
                     config={'displaylogo': False})
@@ -921,18 +923,18 @@ def show_trends(series: pd.DataFrame, prefix: str) -> None:
                                      observed=('focos', 'count'), incomplete=('incompleto', 'any')).reset_index()
     annual['complete'] = (annual.observed == 12) & ~annual.incomplete
     fig = go.Figure()
-    for before, label, color in [(True, 'MODIS converted', '#31688E'),
-                                  (False, 'VIIRS observed', '#35B779')]:
+    for before, label, color in [(True, 'MODIS converted', '#4A90C2'),
+                                  (False, 'VIIRS observed', '#D7191C')]:
         part = annual[annual.ano.lt(2012) == before]
         fig.add_trace(go.Scatter(x=part.ano, y=part.total.where(part.complete),
                                 mode='lines+markers', name=label, connectgaps=False,
                                 line=dict(color=color)))
     partial = annual[~annual.complete & annual.total.notna()]
     fig.add_trace(go.Scatter(x=partial.ano, y=partial.total, mode='markers',
-                            name='Partial-year total', marker=dict(symbol='diamond-open', size=11, color='#FDE725')))
+                            name='Partial-year total', marker=dict(symbol='diamond-open', size=11, color='#FDAE61')))
     if annual.ano.min() < 2012:
         fig.add_vrect(x0=float(annual.ano.min()) - .5, x1=min(2011.5, float(annual.ano.max()) + .5),
-                      fillcolor='#31688E', opacity=.12, line_width=0)
+                      fillcolor='#4A90C2', opacity=.12, line_width=0)
     fig.update_layout(title=f'{prefix}Annual activity', xaxis_title='Year',
                       yaxis_title='VIIRS-equivalent hotspots / year', height=360)
     st.plotly_chart(fig, key='annual_trend', alt='Annual activity with converted MODIS years shaded and partial years shown as open diamonds.',
@@ -941,7 +943,7 @@ def show_trends(series: pd.DataFrame, prefix: str) -> None:
     complete = series[~series.incompleto & series.focos.notna()]
     seasonal = complete.groupby('mes').agg(median=('focos', 'median'), years=('focos', 'count')).reindex(range(1, 13))
     seasonal['month'] = MONTHS
-    fig = px.bar(seasonal, x='month', y='median', color_discrete_sequence=['#35B779'],
+    fig = px.bar(seasonal, x='month', y='median', color_discrete_sequence=['#F46D43'],
                  hover_data=['years'], labels={'month': 'Month (UTC)', 'median': 'Median hotspots / month', 'years': 'Complete years'},
                  title=f'{prefix}Seasonality across complete months')
     st.plotly_chart(fig, key='seasonality', alt='Median monthly activity and number of complete years used for each month.',
@@ -1063,7 +1065,7 @@ def region_map(mode: str) -> None:
                 folium.Polygon(
                     locations=[[(y, x) for x, y in ring.coords]
                                for ring in [part.exterior, *part.interiors]],
-                    color='#35B779', fill_opacity=0.15,
+                    color='#FDAE61', fill_opacity=0.15,
                 ).add_to(editable)
         Draw(feature_group=editable, show_geometry_on_click=False, draw_options={
             'polyline': False, 'circle': False, 'circlemarker': False,
@@ -1072,7 +1074,7 @@ def region_map(mode: str) -> None:
     elif st.session_state['regiao']:
         polygon = shapely.from_wkt(st.session_state['regiao'])
         folium.GeoJson(mapping(polygon), style_function=lambda _: {
-            'color': '#35B779', 'weight': 2, 'fillOpacity': 0.15}).add_to(view)
+            'color': '#FDAE61', 'weight': 2, 'fillOpacity': 0.15}).add_to(view)
         west, south, east, north = polygon.bounds
         view.fit_bounds([[south, west], [north, east]])
     output = st_folium(view, height=400, use_container_width=True,
@@ -1138,11 +1140,7 @@ def area_controls(first_year: int, last_year: int, expanded: bool) -> str:
             st.session_state['map_seed_wkt'] = None
             st.session_state['draft_region'] = None
             st.session_state.pop('last_map_event', None)
-        with st.expander('Try an example region'):
-            example = st.selectbox('Example region', list(EXAMPLES), key='example_region',
-                                   help='Illustrative 100 km circles, not administrative or biome boundaries.')
-            st.button('Apply example region', key='apply_example', width='stretch',
-                      on_click=apply_example, args=(example,))
+        pass  # example regions removed: users draw their own area
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')
@@ -1173,11 +1171,14 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
                                                  cells.lon + .125, cells.lat + .125).sum())
     else:
         selected_count = len(cells)
-    st.caption(f'{selected_count:,} grid-cell centers selected · Values are VIIRS-equivalent hotspots.')
+    st.caption(f'Your area covers {selected_count:,} map squares (about 28 km each). Numbers are hotspot counts on one common satellite scale, so all years can be compared.')
+    st.info('**How to read the calendar:** each row is a year, each column is a month. '
+            '**Blue = few hotspots, red = many.** A star (*) marks a month with missing satellite days. '
+            'To see the hotspot dots inside your area, open **Fire map** and turn on **Use selected area**.')
     st.subheader('Burning activity calendar')
     if selected_count == 0:
         st.warning('No grid-cell centers from the dataset fall inside this selection. '
-                   'Try a larger radius or an example region. Zero totals here do not establish that no fire occurred.')
+                   'Try a larger area. Zero totals here do not establish that no fire occurred.')
     elif series.focos.fillna(0).sum() == 0:
         st.info('No detections in the selected cells and period. Try a larger region; small areas may contain no cell centers.')
     anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode', persist_state='session',

@@ -358,17 +358,13 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertEqual(app.selectbox(key='fire_sensor').value, 'VIIRS S-NPP')
 
-    def test_example_regions_and_empty_selection(self):
+    def test_empty_selection(self):
         with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
             app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
             app.session_state['main_tabs'] = 'Calendar'
             app.run()
-            for name in ['Pantanal', 'Matopiba', 'Acre']:
-                app.selectbox(key='example_region').select(name).run()
-                app.button(key='apply_example').click().run()
-                self.assertFalse(app.exception)
-                self.assertIn(name, app.session_state['region_label'])
-                self.assertEqual(app.radio(key='region_mode').value, 'Lat-Lon + radius')
+            # example regions were removed (users draw their own area); switch to coordinates instead
+            app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
             app.number_input(key='latitude').set_value(-30.)
             app.number_input(key='longitude').set_value(-35.)
             app.number_input(key='radius').set_value(5.)
