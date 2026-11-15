@@ -3,6 +3,12 @@
 Projeto: **NASA Space Apps 2026 — "MODIS and VIIRS Hot Spots Harmonization"**. App **EMBER**.
 Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vagnermelo20/NasaAppChallenge
 
+## Como retomar numa conversa nova (comece por aqui)
+1. Leia este arquivo inteiro; depois `specs/tasks.md` (o que está feito/aberto) e `AGENTS.md`.
+2. `git pull` na `main`. Rodar o app: `.venv/Scripts/python.exe -m streamlit run app/app.py` (http://localhost:8501) ou `.claude/launch.json` ("ember-app").
+3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (26 testes) e `.venv/Scripts/python -m app.check_release`.
+4. O usuário é a **Pessoa A** (dados/ciência); a Pessoa B fez o front-end. Hoje trabalhamos os dois no mesmo repositório, só na `main`.
+
 ## Regras (do usuário)
 - **Trabalhar só na `main`.** Não criar outras branches.
 - **Nunca colocar Claude nos commits** (sem `Co-Authored-By`, sem menção a IA).
@@ -16,7 +22,7 @@ Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vag
 - Brutos em `data/raw/` (fora do git). Processados em `data/processed/` (no git).
 
 ## Pipeline (notebooks/)
-00 entendimento · 01 download + grade · 02 identificação dos campos · 03 versão MODIS e pixel · 04 **harmonização** (→ `harmonized.parquet`, `grid_sat.parquet`, `fatores_k.parquet`, `static_mask.parquet`) · 05 validação deixando o ano de fora · 06 dados de 2026 · 07 prova "MODIS diz X, VIIRS diz Y" + robustez + faixa de incerteza · 08 base de focos por ano com `peso_harmonizado` (`data/processed/focos/`).
+00 entendimento · 01 download + grade · 02 identificação dos campos · 03 versão MODIS e pixel · 04 **harmonização** (→ `harmonized.parquet`, `grid_sat.parquet`, `fatores_k.parquet`, `static_mask.parquet`) · 05 validação deixando o ano de fora · 06 dados de 2026 · 07 prova "MODIS diz X, VIIRS diz Y" + robustez + faixa de incerteza · 08 base de focos por ano com `peso_harmonizado` (`data/processed/focos/`) · **09** `09_serie_diaria.py` série diária/semanal com cascata S-NPP → NOAA-20 → MODIS convertido (`data/processed/diario/`, `semanal.parquet`, `disponibilidade_diaria.parquet`; soma diária = mensal) · experimentos: `exp_debate_*.py`, `exp_v3_conversao.py`.
 
 ## Método atual de harmonização (v2) — NÃO é machine learning
 1. Filtros: MODIS confiança ≥ 30; VIIRS n|h; máscara de fontes estáticas (células 0,02° com type 1/2/3 em ≥ 2 anos).
@@ -27,11 +33,13 @@ Resultado (deixando o ano de fora): Brasil erro anual 1,6%; região 2° × mês 
 Testado e rejeitado: k dia/noite, vizinhança 3×3, climatologia como prior, covariáveis do MODIS por região×mês (P90 FRP etc.).
 
 ## App (app/app.py, Streamlit)
-Fire map (um mapa só: escolher data/intervalo, MODIS e VIIRS juntos; popup nos pontos; limite 50 mil pontos) · Calendar (área desenhada, resumo automático, botão sem/com harmonização, cores azul→vermelho em escala log) · Hotspot search (CSV) · Trends · Methodology. Testes: `.venv/Scripts/python -m unittest app.test_delivery`. Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
+Fire map (um mapa só: escolher data/intervalo, MODIS e VIIRS juntos; popup nos pontos; limite 50 mil pontos) · Calendar (área desenhada, resumo automático 'What this area tells you', botão sem/com harmonização, visão Day/Week/Month, calendário azul→vermelho em escala log) · Hotspot search (CSV) · Trends · Methodology. Testes: `.venv/Scripts/python -m unittest app.test_delivery`. Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
 
-## Pendências
-- Harmonização v3 mais forte (ver plano abaixo) — pedido do usuário em 15/11/2026.
-- Nomes da equipe, vídeo de 30 s, envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
+## Pendências (atualizado 15/11/2026)
+- **Entrega:** nomes da equipe (README e submissão), vídeo de 30 s, envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
+- **Série diária:** NOAA-20 de 2026 pela API (03–14/11/2026 vazios; S-NPP sem dados desde 02/11); faixa de incerteza diária (D4); medir concordância diária/semanal (D1).
+- **Harmonização v3:** lei de potência e quantile mapping testados e rejeitados; resta testar o k físico pela distribuição de FRP (expectativa baixa).
+- Opcional: contornos de estados/biomas no mapa; teste automático que pegue o calendário vazio (eixo de categorias).
 
 ## Plano: harmonização v3 (proposta, ainda não implementada)
 Ideia central: converter **cada foco MODIS** (não a soma do mês) pela física da detecção, para capturar a variação de ano a ano que o k médio não captura.
