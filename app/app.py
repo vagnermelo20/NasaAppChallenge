@@ -461,16 +461,21 @@ def show_fire_map() -> None:
     available = available[~((available.ano == hoje.year) & (available.mes == hoje.month))]   # current month is still filling in
     years = sorted(int(y) for y in available.ano.unique())
     with st.sidebar:
-        with st.container(horizontal=True):
-            year = st.selectbox('Year · UTC', years, index=len(years)-1, key='fire_year', persist_state='session')
-            months = sorted(int(m) for m in available[available.ano == year].mes)
-            month = st.selectbox('Month', months, index=len(months)-1, format_func=lambda m: MONTHS[m-1],
-                                 key='fire_month', persist_state='session')
-        last_day = calendar.monthrange(year, month)[1]
-        days = st.select_slider('Days of the month', options=list(range(1, last_day + 1)), value=(1, min(7, last_day)),
-                                key='fire_days', help='Dots are drawn only for these days. Fewer days = clearer map.')
-        limit = st.toggle('Use selected area', value=False, key='fire_limit', persist_state='session',
-                          help='Filter to the area applied in Calendar; otherwise show Brazil.')
+        last = available.sort_values(['ano', 'mes']).iloc[-1]
+        newest = date(int(last.ano), int(last.mes), calendar.monthrange(int(last.ano), int(last.mes))[1])
+        picked = st.date_input('Date or date range (UTC)', value=(newest - timedelta(days=6), newest),
+                               min_value=date(2001, 1, 1), max_value=newest, key='fire_dates',
+                               help='Pick one day or a range of up to 92 days, in any year 2001-2026. '
+                                    'All satellites appear together on this one map.')
+        if not isinstance(picked, (tuple, list)):
+            picked = (picked, picked)
+        day_from, day_to = (picked[0], picked[1]) if len(picked) == 2 else (picked[0], picked[0])
+        if (day_to - day_from).days + 1 > 92:
+            st.warning('Up to 92 days at a time; showing the last 92 days of your range.')
+            day_from = day_to - timedelta(days=91)
+        year, month = day_to.year, day_to.month          # the summary numbers describe this month
+        limit = st.toggle('Use selected area', value=st.session_state.get('regiao') is not None, key='fire_limit',
+                          help='Show only the area you drew in Calendar; otherwise show all of Brazil.')
         visual_mode = st.segmented_control('Display style', ['Hotspot locations', 'Analysis grid'],
                                            default='Hotspot locations', required=True, key='fire_visual_mode',
                                            width='stretch', persist_state='session',
@@ -538,15 +543,24 @@ def show_fire_map() -> None:
     if visual_mode == 'Hotspot locations':
         point_file = ROOT / f'data/processed/focos/focos_{year}.parquet'
         if point_file.exists():
-            points = hotspot_locations(str(point_file), point_file.stat().st_mtime_ns, year, month,
-                                       None if harmonized else sensor, region, tuple(days))
+            parts = []
+            for y in range(day_from.year, day_to.year + 1):
+                f = ROOT / f'data/processed/focos/focos_{y}.parquet'
+                for m in range(1, 13):
+                    first, last_m = date(y, m, 1), date(y, m, calendar.monthrange(y, m)[1])
+                    if f.exists() and last_m >= day_from and first <= day_to:
+                        lo, hi = max(first, day_from).day, min(last_m, day_to).day
+                        parts.append(hotspot_locations(str(f), f.stat().st_mtime_ns, y, m,
+                                                       None if harmonized else sensor, region, (lo, hi)))
+            points = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame()
             if len(points) > MAX_MAP_POINTS:
                 st.warning(f'{len(points):,} detections in these days: too many to draw clearly. '
                            f'Choose fewer days or a smaller area (limit {MAX_MAP_POINTS:,}), or switch to Analysis grid.')
             else:
                 add_hotspot_locations(view, points, opacity)
-                st.caption(f'{len(points):,} detections shown (days {days[0]}-{days[1]}). Click a dot to see its date, time, '
-                           'satellite and fire power. The numbers above describe the whole month.')
+                st.caption(f'{len(points):,} hotspots from {day_from:%d %b %Y} to {day_to:%d %b %Y}, all satellites on one map '
+                           '(MODIS before 2012, VIIRS after). Click a dot to see its date, time, satellite and fire power. '
+                           f'The numbers above describe {MONTHS[month - 1]} {year}.')
         else:
             st.info('Individual detection coordinates are not available for this year. Select Analysis grid to view activity.')
     else:
@@ -1284,10 +1298,10 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
     st.caption(f'Your area covers {selected_count:,} map squares (about 28 km each). Numbers are hotspot counts on one common satellite scale, so all years can be compared.')
     st.info('**How to read the calendar:** each row is a year, each column is a month. '
             '**Blue = few hotspots, red = many.** A star (*) marks a month with missing satellite days. '
-            'Draw a square, rectangle or any shape on the map and click **Apply map selection**: the hotspots inside it appear right below.')
+            'Draw a square, rectangle or any shape and click **Apply map selection**. Then open **Fire map** and pick a date: '
+            'the hotspots inside your area appear there, on one single map.')
     if selected_count:
         show_region_summary(series, selected_count, start)
-        show_area_hotspots(series, region_wkt)
         show_harmonization_demo(series, region_wkt, start, end)
     st.subheader('Burning activity calendar')
     if selected_count == 0:
