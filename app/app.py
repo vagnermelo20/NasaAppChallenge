@@ -24,11 +24,6 @@ ROOT = Path(__file__).resolve().parents[1]
 REAL = ROOT / 'data/processed/harmonized.parquet'
 MOCK = ROOT / 'data/processed/harmonized_mock.parquet'
 MONTHS = list(calendar.month_abbr)[1:]
-EXAMPLES = {
-    'Pantanal': (-18.0, -56.5, 100.0),
-    'Matopiba': (-10.0, -46.0, 100.0),
-    'Acre': (-9.0, -70.0, 100.0),
-}
 MAX_MAP_POINTS = 50_000   # above this the browser map becomes slow and unreadable
 FIRE_COLORS = ['#2C7BB6', '#ABD9E9', '#FFFFBF', '#FDAE61', '#D7191C']   # blue (few) -> red (many)
 FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
@@ -674,19 +669,6 @@ def radius_polygon(lat: float, lon: float, radius_km: float) -> Polygon:
     return Polygon(points)
 
 
-def apply_example(name: str) -> None:
-    lat, lon, radius = EXAMPLES[name]
-    st.session_state['region_mode'] = 'Lat-Lon + radius'
-    st.session_state['latitude'] = lat
-    st.session_state['longitude'] = lon
-    st.session_state['radius'] = radius
-    st.session_state['regiao'] = radius_polygon(lat, lon, radius).wkt
-    st.session_state['region_label'] = f'{name} example · {radius:g} km radius'
-    st.session_state['draft_region'] = st.session_state['regiao']
-    if st.session_state.get('main_tabs') == 'Fire map':
-        st.session_state['fire_limit'] = True
-
-
 def drawn_region(payload: dict) -> str | None:
     """Union drawn polygons; an empty list means drawings were deleted."""
     drawings = payload.get('all_drawings')
@@ -1049,7 +1031,6 @@ def show_methodology(is_mock: bool, coverage: pd.DataFrame | None = None) -> Non
                 '**Coverage:** missing cell-month records are treated as zero within the source coverage, as agreed in the data contract. '
                 'Entire missing observation months require additional coverage metadata. Hotspots do not measure burned area or unique fires.')
     for filename, description in [('prova_antes_depois.png', 'Out-of-sample comparison before and after conversion'),
-                                  ('prova_pantanal.png', 'Pantanal: converted MODIS versus observed VIIRS'),
                                   ('harmonizado_anual.png', 'Delivered harmonized annual series')]:
         image = ROOT / 'reports' / filename
         if image.exists():
@@ -1159,7 +1140,7 @@ def area_controls(first_year: int, last_year: int, expanded: bool) -> str:
             st.session_state['map_seed_wkt'] = None
             st.session_state['draft_region'] = None
             st.session_state.pop('last_map_event', None)
-        pass  # example regions removed: users draw their own area
+        pass
         st.divider()
         st.caption(f'Data coverage: {first_year}–{last_year}')
         st.caption('Grid: 0.25° · Cell-center selection · UTC months')

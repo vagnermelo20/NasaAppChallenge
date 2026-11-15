@@ -57,7 +57,7 @@ imagery is context and is not synchronized to the NASA observation date.
   Incomplete intervals are excluded from numerical comparisons; February 29
   is never silently moved in non-leap years. The archive follows MODIS before
   2012 and S-NPP afterward, rather than retaining every sensor in every year.
-- Apply illustrative 100 km examples for Pantanal, Matopiba and Acre.
+- Draw any square, rectangle or shape and see the hotspots inside it, its fire season and the comparison with history.
 - Explore a year-by-month calendar with accessible Viridis and PuOr color scales.
 - View **Fire map** using real harmonized activity or processed sensor observations,
   with fixed color ranges, a map legend, period controls, tooltips and cell CSV.
