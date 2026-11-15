@@ -337,7 +337,7 @@ class ApplicationTests(unittest.TestCase):
         with patch('streamlit_folium.st_folium', return_value={}):
             app = app_test().run()
             self.assertFalse(app.exception)
-            self.assertEqual([tab.label for tab in app.tabs[:3]], ['Map', 'How it works', 'Search hot spots'])
+            self.assertEqual([tab.label for tab in app.tabs[:2]], ['Map', 'How it works'])
             self.assertEqual(app.get('segmented_control')[0].value, 'Latest 7 days')
             self.assertEqual(len(app.sidebar), 0)
             self.assertEqual(len(app.get('download_button')), 1)
@@ -378,23 +378,25 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertIsNone(app.session_state['regiao'])
 
-    def test_how_it_works_and_search_by_coordinates(self):
+    def test_how_it_works_and_type_a_place_on_the_map(self):
         with patch('streamlit_folium.st_folium', return_value={}):
             app = app_test()
             app.session_state['main_tabs'] = 'How it works'
             app.run()
             self.assertFalse(app.exception)
             self.assertTrue(any('simple words' in s.value for s in app.subheader))
-            app.session_state['main_tabs'] = 'Search hot spots'
+            app.session_state['main_tabs'] = 'Map'
             app.run()
+            self.assertTrue(any('Draw an area or type a place' in c.value for c in app.caption))
+            app.number_input(key='place_lat').set_value(-5.)
+            app.number_input(key='place_lon').set_value(-45.)
+            app.number_input(key='place_radius').set_value(50.)
+            app.button(key='place_submit').click().run()
             self.assertFalse(app.exception)
-            app.number_input(key='search_lat').set_value(-10.)
-            app.number_input(key='search_lon').set_value(-50.)
-            app.number_input(key='search_radius').set_value(100.)
-            app.button(key='search_submit').click().run()
-            self.assertFalse(app.exception)
-            self.assertEqual(app.session_state['search_query'][2:], (-10., -50., 100.))
-            self.assertTrue(any('within 100 km' in m.label for m in app.metric))
+            self.assertIsNotNone(app.session_state['regiao'])
+            self.assertIn('50 km around -5.0000, -45.0000', app.session_state['region_label'])
+            self.assertTrue(any('hot spots** inside your area' in c.value for c in app.caption))
+            self.assertEqual(len(app.dataframe), 1)
 
     def test_area_page_has_calendar_timescales_and_usual_year(self):
         with patch('streamlit_folium.st_folium', return_value={}):

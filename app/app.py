@@ -477,7 +477,7 @@ def show_how_it_works(first_year: int, last_year: int) -> None:
         '- **Draw a box** on the map around any place you care about.\n'
         '- **Find its fire season**: which months burn most, and when to get ready.\n'
         '- **Compare years**: is this year worse or better than normal?\n'
-        '- **Search hot spots** near any place by its latitude and longitude.\n\n'
+        '- **Type a place** (latitude and longitude) instead of drawing, and list or download its hot spots.\n\n'
         '#### 7. Good to know\n'
         '- A hot spot shows **where** there is heat, not **how big** the fire is or how much land burned.\n'
         '- Clouds and smoke can hide fires from the satellite.\n'
@@ -602,16 +602,64 @@ def map_legend(day_from: date, day_to: date) -> str:
             f'Zoom in to a smaller area to see every one as a dot: {dots}</div>')
 
 
+def start_end_dates(key: str, start: date, end: date, newest: date) -> tuple[date, date]:
+    """Two separate boxes: the first day and the last day (any days from 2001 to the newest data)."""
+    with st.container(horizontal=True):
+        first = st.date_input('Start date', start, min_value=date(2001, 1, 1), max_value=newest, key=f'{key}_start')
+        last = st.date_input('End date', end, min_value=date(2001, 1, 1), max_value=newest, key=f'{key}_end')
+    if last < first:
+        st.caption('The end date was before the start date, so they were swapped.')
+        first, last = last, first
+    return first, last
+
+
 def chosen_period(newest: date) -> tuple[date, date]:
     choice = st.segmented_control('Show hot spots from', [*PERIODS, 'Pick dates'], default='Latest 7 days',
                                   required=True, key='map_period')
     if choice != 'Pick dates':
         return newest - timedelta(days=PERIODS[choice] - 1), newest
-    picked = st.date_input('Pick one day or any range, from 2001 to today', value=(date(2001, 1, 1), newest),
-                           min_value=date(2001, 1, 1), max_value=newest, key='map_dates')
-    if not isinstance(picked, (tuple, list)):
-        picked = (picked, picked)
-    return (picked[0], picked[1]) if len(picked) == 2 else (picked[0], picked[0])
+    return start_end_dates('map_dates', date(2001, 1, 1), newest, newest)
+
+
+def place_form() -> None:
+    """Second way to choose the area: type a place instead of drawing it."""
+    with st.expander('Or type a place: latitude, longitude and distance around it'):
+        with st.form('place_form', border=False):
+            with st.container(horizontal=True):
+                lat = st.number_input('Latitude', -34., 6., -15.79, .01, format='%.4f', key='place_lat')
+                lon = st.number_input('Longitude', -74., -34., -47.88, .01, format='%.4f', key='place_lon')
+                radius = st.number_input('Distance around it (km)', 1., 500., 50., 5., key='place_radius')
+            st.caption('Tip: in Google Maps, right-click a place to copy its latitude and longitude.')
+            if st.form_submit_button('Show this place', type='primary', icon=':material/my_location:', key='place_submit'):
+                st.session_state['regiao'] = radius_polygon(lat, lon, radius).wkt
+                st.session_state['draft_region'] = st.session_state['regiao']
+                st.session_state['region_label'] = f'{radius:g} km around {lat:.4f}, {lon:.4f}'
+                st.session_state['map_revision'] += 1
+                st.session_state.pop('last_map_event', None)
+                st.rerun()
+
+
+def area_hotspots_table(files: tuple[tuple[str, int], ...], day_from: date, day_to: date, region: str | None) -> None:
+    """Every hot spot inside the area, for the dates chosen above the map (no cap)."""
+    st.markdown('#### Hot spots in your area on these dates')
+    if region is None:
+        st.caption('Draw an area or type a place to list its hot spots one by one and download them.')
+        return
+    if not files:
+        st.caption('No hot spot files for these dates.')
+        return
+    with st.spinner('Listing hot spots…'):
+        points, _ = search_hotspots(files, day_from, day_to, 'All available sensors', region)
+    st.caption(f'**{len(points):,} hot spots** inside your area from {day_from:%d %b %Y} to {day_to:%d %b %Y}. '
+               'Change the dates above the map to list other days.')
+    if points.empty:
+        return
+    st.dataframe(search_table(points), hide_index=True, alt='Hot spots inside the chosen area.', height=300,
+                 column_config={'When (Brasília time)': st.column_config.DatetimeColumn(format='DD MMM YYYY, HH:mm')})
+    # The CSV is only built when the button is clicked: millions of rows would slow every rerun otherwise.
+    st.download_button('Download these hot spots (CSV)', lambda: point_export(points).to_csv(index=False).encode('utf-8-sig'),
+                       f'ember_hotspots_{day_from}_{day_to}.csv', 'text/csv', key='area_points_csv', on_click='ignore',
+                       icon=':material/download:')
 
 
 @st.fragment
@@ -703,9 +751,12 @@ def area_map() -> None:
         if pending:
             st.caption('You drew a new area. Press the button to see its fire history.')
         elif region is None:
-            st.caption('To look at one place: click ■ (box) on the left of the map, drag over the place, then press the button.')
+            st.caption('To look at one place: click ■ (box) on the left of the map, drag over the place, then press the button. '
+                       'Or type its latitude and longitude below.')
         else:
-            st.caption('Your area is outlined in blue on the map.')
+            st.caption(f"{st.session_state['region_label']} is outlined in blue on the map.")
+    place_form()
+    area_hotspots_table(files, day_from, day_to, st.session_state['regiao'])
 
 
 # ---------------------------------------------------------------------------
@@ -850,11 +901,7 @@ def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
         note = 'Hot spots per month (the same numbers as the calendar).'
     else:
         span = 90 if scale == 'Day' else 730
-        picked = st.date_input('Dates', value=(newest - timedelta(days=span), newest), min_value=date(2001, 1, 1),
-                               max_value=newest, key=f'timescale_{scale}')
-        if not isinstance(picked, (tuple, list)) or len(picked) != 2:
-            st.info('Choose a start and an end date.')
-            return
+        picked = start_end_dates(f'timescale_{scale}', newest - timedelta(days=span), newest, newest)
         data = timescale_data(scale, region_wkt, picked[0], picked[1])
         if data.empty:
             st.info('No hot spots in this area and these dates.')
@@ -989,70 +1036,6 @@ def search_table(points: pd.DataFrame) -> pd.DataFrame:
                          'Heat strength (MW)': points.frp.round(1)})
 
 
-def show_search(coverage: pd.DataFrame) -> None:
-    st.subheader('Find hot spots near a place')
-    st.caption('Type the latitude and longitude of a place (in Google Maps, right-click the place to copy them), '
-               'how far around it to look, and the dates (any dates from 2001 to today).')
-    files = sorted((ROOT / 'data/processed/focos').glob('focos_*.parquet'))
-    if not files:
-        st.info('The hot spot files are not available.')
-        return
-    newest = newest_point_date(str(files[-1]), files[-1].stat().st_mtime_ns)
-    with st.form('search_form'):
-        with st.container(horizontal=True):
-            lat = st.number_input('Latitude', -34., 6., -15.79, .01, format='%.4f', key='search_lat')
-            lon = st.number_input('Longitude', -74., -34., -47.88, .01, format='%.4f', key='search_lon')
-            radius = st.number_input('Distance around it (km)', 1., 300., 50., 5., key='search_radius')
-        dates = st.date_input('Dates', (newest - timedelta(days=6), newest), min_value=date(2001, 1, 1),
-                              max_value=newest, key='search_dates')
-        submitted = st.form_submit_button('Search', type='primary', icon=':material/search:', key='search_submit')
-    if submitted:
-        if not isinstance(dates, (tuple, list)) or len(dates) != 2:
-            st.error('Choose a start and an end date.')
-            st.session_state.pop('search_query', None)
-        else:
-            st.session_state['search_query'] = (dates[0], dates[1], lat, lon, radius)
-    query = st.session_state.get('search_query')
-    if not query:
-        return
-    start, end, lat, lon, radius = query
-    area = radius_polygon(lat, lon, radius)
-    try:
-        with st.spinner('Searching…'):
-            files = point_files(start, end)
-            points, _ = search_hotspots(files, start, end, 'All available sensors', area.wkt)
-    except (ValueError, duckdb.Error) as error:
-        st.warning(str(error))
-        return
-    st.metric(f'Hot spots within {radius:g} km', f'{len(points):,}')
-    if len(points) > MAX_MAP_POINTS:
-        st.caption(f'The table and the CSV have all {len(points):,} hot spots. That is too many to draw one by one, '
-                   'so the map shows them as a glow. Pick a smaller distance or fewer dates to see every dot.')
-    if interval_coverage(start, end, coverage) != 'No monthly completeness flag':
-        st.caption('Some of these days may be missing satellite data, so the real number can be higher.')
-    if points.empty:
-        st.info('No hot spots found here on these dates.')
-        return
-    view = folium.Map(tiles=None, prefer_canvas=True, control_scale=True)
-    folium.TileLayer(tiles=SATELLITE_TILES, attr='Imagery &copy; Esri, Vantor, Earthstar Geographics',
-                     max_zoom=18, max_native_zoom=16).add_to(view)
-    folium.TileLayer(tiles=LABEL_TILES, attr='Labels &copy; Esri', overlay=True, control=False,
-                     max_zoom=18, max_native_zoom=16).add_to(view)
-    folium.Polygon([(y, x) for x, y in area.exterior.coords], color='#4FC3F7', weight=2, fill_opacity=.05).add_to(view)
-    if len(points) <= MAX_MAP_POINTS:
-        add_hotspot_locations(view, points, end)
-    else:
-        HeatMap(heat_cells(group_points(points)), radius=9, blur=11, min_opacity=.3,
-                gradient={'0.2': '#B22200', '0.45': '#FF6A00', '0.7': '#FFA500', '1': '#FFE14D'}).add_to(view)
-    west, south, east, north = area.bounds
-    view.fit_bounds([[south, west], [north, east]])
-    st_folium(view, height=420, use_container_width=True, returned_objects=[], key=f'search_map_{query}')
-    st.dataframe(search_table(points), hide_index=True, alt='Hot spots found near the chosen place.',
-                 column_config={'When (Brasília time)': st.column_config.DatetimeColumn(format='DD MMM YYYY, HH:mm')})
-    # The CSV is only built when the button is clicked: millions of rows would slow every search otherwise.
-    st.download_button('Download these hot spots (CSV)', lambda: point_export(points).to_csv(index=False).encode('utf-8-sig'),
-                       f'ember_hotspots_{start}_{end}.csv', 'text/csv', key='search_csv', on_click='ignore',
-                       icon=':material/download:')
 
 
 def show_about(coverage: pd.DataFrame) -> None:
@@ -1087,8 +1070,7 @@ def main() -> None:
                f'From {first_year} to today, all years on the same scale.')
     if is_mock:
         st.warning('Development data (mock), not the real harmonized series.')
-    map_tab, how_tab, search_tab = st.tabs(['Map', 'How it works', 'Search hot spots'], default='Map',
-                                           key='main_tabs', on_change='rerun')
+    map_tab, how_tab = st.tabs(['Map', 'How it works'], default='Map', key='main_tabs', on_change='rerun')
     with map_tab:
         if map_tab.open:
             area_map()
@@ -1097,9 +1079,6 @@ def main() -> None:
         if how_tab.open:
             show_how_it_works(first_year, last_year)
             show_about(coverage)
-    with search_tab:
-        if search_tab.open:
-            show_search(coverage)
     st.caption('A hot spot shows where there is heat, not how big a fire is or how much land burned.')
 
 
