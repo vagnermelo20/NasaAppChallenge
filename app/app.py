@@ -16,6 +16,7 @@ import shapely
 import streamlit as st
 from branca.element import MacroElement, Template
 from folium.plugins import Draw, HeatMap
+from folium.utilities import JsCode
 from shapely.geometry import Polygon, shape
 from streamlit_folium import st_folium
 
@@ -507,7 +508,7 @@ def timescale_data(scale: str, region_wkt: str | None, day_from: date, day_to: d
 # ---------------------------------------------------------------------------
 # Map tab: one map with the hot spots AND the drawing tool (plan L1/L2)
 # ---------------------------------------------------------------------------
-AGE_CLASSES = [('Older', '#E8251B'), ('2 to 7 days before', '#FF8C1A'), ('Latest day', '#FFE14D')]  # newest drawn last, on top
+DOT_COLOR = '#E8251B'   # one colour for every hot spot
 SATELLITE_WORDS = {'S-NPP': 'VIIRS (newer satellite, since 2012)',
                    'Terra': 'MODIS Terra (older satellite, since 2001)',
                    'Aqua': 'MODIS Aqua (older satellite, since 2002)'}
@@ -561,45 +562,75 @@ def dots_in_view(files: tuple[tuple[str, int], ...], start: date, end: date,
         count = int(con.execute('SELECT count(*) ' + where, args).fetchone()[0])
         if count > MAX_MAP_POINTS:
             return count, pd.DataFrame(columns=['lat', 'lon', 'data', 'hora_utc', 'satelite'])
-        dots = con.execute('SELECT lat, lon, data, hora_utc, satelite ' + where + ' ORDER BY data, hora_utc', args).df()
+        dots = con.execute('SELECT lat, lon, data, hora_utc, satelite, frp ' + where + ' ORDER BY data, hora_utc', args).df()
     return count, dots
 
 
-def age_class(days: pd.Series, end: date) -> np.ndarray:
-    """0 = older, 1 = 2 to 7 days before the last day shown, 2 = the last day shown."""
-    age = (pd.Timestamp(end) - pd.to_datetime(days)).dt.days.to_numpy()
-    return np.select([age <= 0, age <= 6], [2, 1], 0)
+POPUP_JS = """
+function (feature, layer) {
+    layer.bindPopup(function () {
+        var p = feature.properties;
+        var words = {'S-NPP': 'VIIRS (newer satellite, since 2012)', 'Terra': 'MODIS Terra (older satellite, since 2001)',
+                     'Aqua': 'MODIS Aqua (older satellite, since 2002)'};
+        var html = '<div style="font:13px/1.45 sans-serif;min-width:220px">'
+            + '<b>Seen by:</b> ' + (words[p.s] || p.s) + '<br>'
+            + '<b>When:</b> ' + p.t + ' (Brasília time)';
+        if (p.f !== undefined && p.f !== null) {
+            html += '<br><b>Heat strength:</b> ' + p.f.toFixed(1) + ' MW';
+            if (p.p !== undefined && p.p !== null) html += ', stronger than ' + p.p + '% of the hot spots this satellite saw in Brazil';
+        }
+        return html + '</div>';
+    });
+}
+"""
 
 
-def add_hotspot_locations(view, points: pd.DataFrame, end: date) -> None:
-    """Small dots coloured by age, like the NASA FIRMS map. Popup in plain words and Brasília time."""
+def add_hotspot_locations(view, points: pd.DataFrame) -> None:
+    """One small red dot per hot spot. Clicking it shows who saw it, when, and how strong the heat was."""
     if points.empty:
         return
     hours = points.hora_utc.astype(int)
     when = (pd.to_datetime(points.data) + pd.to_timedelta(hours // 100, unit='h')
             + pd.to_timedelta(hours % 100, unit='m') - pd.Timedelta(hours=3))
-    classes = age_class(points.data, end)
-    for index, (label, color) in enumerate(AGE_CLASSES):
-        mask = classes == index
-        if not mask.any():
-            continue
-        features = [{'type': 'Feature',
-                     'geometry': {'type': 'Point', 'coordinates': [round(float(lon), 4), round(float(lat), 4)]},
-                     'properties': {'When (Brasília time)': f'{moment:%d %b %Y, %H:%M}',
-                                    'Seen by': SATELLITE_WORDS.get(sat, sat)}}
-                    for lat, lon, moment, sat in zip(points.lat[mask], points.lon[mask], when[mask], points.satelite[mask])]
-        folium.GeoJson({'type': 'FeatureCollection', 'features': features}, name=f'Hot spots · {label}',
-                       marker=folium.CircleMarker(radius=3.5, stroke=True, color='#2B0A00', weight=.6,
-                                                  fill=True, fill_color=color, fill_opacity=.95),
-                       popup=folium.GeoJsonPopup(fields=['When (Brasília time)', 'Seen by'])).add_to(view)
+    frp = points.frp if 'frp' in points.columns else pd.Series(np.nan, index=points.index)
+    pct = points.frp_pct if 'frp_pct' in points.columns else pd.Series(np.nan, index=points.index)
+    features = [{'type': 'Feature',
+                 'properties': {'t': f'{moment:%d %b %Y, %H:%M}', 's': sat,
+                                'f': round(float(f), 1) if pd.notna(f) else None,
+                                'p': int(q) if pd.notna(q) else None},
+                 'geometry': {'type': 'Point', 'coordinates': [round(float(lon), 4), round(float(lat), 4)]}}
+                for lat, lon, moment, sat, f, q in zip(points.lat, points.lon, when, points.satelite, frp, pct)]
+    folium.GeoJson({'type': 'FeatureCollection', 'features': features}, name='Hot spots',
+                   marker=folium.CircleMarker(radius=3.5, stroke=True, color='#2B0A00', weight=.6,
+                                              fill=True, fill_color=DOT_COLOR, fill_opacity=.95),
+                   on_each_feature=JsCode(POPUP_JS)).add_to(view)
 
 
-def map_legend(day_from: date, day_to: date) -> str:
-    span = (day_to - day_from).days
-    shown = AGE_CLASSES[::-1][:1 if span == 0 else (2 if span < 7 else 3)]
-    dots = ' &nbsp; '.join(f'<span style="color:{color};font-size:1.3em">●</span> {label}' for label, color in shown)
-    return (f'<div style="font-size:.95rem">From far away, glowing areas show where hot spots are. '
-            f'Zoom in to a smaller area to see every one as a dot: {dots}</div>')
+@st.cache_data
+def frp_percentiles(paths: tuple[str, ...]) -> dict[str, np.ndarray]:
+    """For each satellite: the heat strength (FRP) at 0%, 1%, ..., 100% of its hot spots in Brazil."""
+    steps = [i / 100 for i in range(101)]
+    with duckdb.connect() as con:
+        # A 10% block sample of the ~22 million hot spots gives the same percentiles, much faster.
+        rows = con.execute('SELECT satelite, quantile_cont(frp, ?) FROM (SELECT satelite, frp FROM read_parquet(?) '
+                           'USING SAMPLE 10% (system, 42)) GROUP BY 1', [steps, list(paths)]).fetchall()
+    return {sat: np.array(values, dtype=float) for sat, values in rows}
+
+
+def with_heat_rank(points: pd.DataFrame) -> pd.DataFrame:
+    """Adds 'stronger than X% of the hot spots this satellite saw in Brazil'."""
+    files = tuple(str(f) for f in sorted((ROOT / 'data/processed/focos').glob('focos_*.parquet')))
+    if points.empty or 'frp' not in points.columns or not files:
+        return points
+    table = frp_percentiles(files)
+    ranks = [int(np.searchsorted(table[s], f, side='right') - 1) if s in table and pd.notna(f) else None
+             for s, f in zip(points.satelite, points.frp)]
+    return points.assign(frp_pct=pd.Series(ranks, index=points.index, dtype='float').clip(0, 99))
+
+
+def map_legend() -> str:
+    return (f'<div style="font-size:.95rem">From far away, glowing areas show where hot spots are. Zoom in to a smaller '
+            f'area to see every one as a dot <span style="color:{DOT_COLOR};font-size:1.3em">●</span> and click it.</div>')
 
 
 def start_end_dates(key: str, start: date, end: date, newest: date) -> tuple[date, date]:
@@ -700,7 +731,7 @@ def area_map() -> None:
         'polygon': {'allowIntersection': False, 'shapeOptions': {'color': '#4FC3F7'}}}).add_to(view)
     add_heat(view, cells, heat_square(day_from, day_to))
     with st.container(horizontal=True, vertical_alignment='center'):
-        st.html(map_legend(day_from, day_to))
+        st.html(map_legend())
         start_format = '%d %b' if day_from.year == day_to.year else '%d %b %Y'
         period = (day_to.strftime('%d %b %Y') if day_from == day_to
                   else f'{day_from.strftime(start_format)} – {day_to:%d %b %Y}')
@@ -716,8 +747,9 @@ def area_map() -> None:
     if total and box and files:
         in_view, points = dots_in_view(files, day_from, day_to, box)
         if in_view <= MAX_MAP_POINTS:
-            add_hotspot_locations(dots, points, day_to)
-            st.caption(f'All {in_view:,} hot spots in this part of the map are shown as dots. Click one for details.')
+            add_hotspot_locations(dots, with_heat_rank(points))
+            st.caption(f'All {in_view:,} hot spots in this part of the map are shown as dots. '
+                       'Click one to see who saw it, when, and how strong the heat was.')
         else:
             st.caption(f'{in_view:,} hot spots in this part of the map: too many to draw one by one. '
                        'Zoom in more (or pick fewer days) to see every dot.')

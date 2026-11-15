@@ -18,9 +18,9 @@ from app.check_release import inspect_release
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
-                     hotspot_locations, add_hotspot_locations, age_class, map_legend, season_text,
+                     hotspot_locations, add_hotspot_locations, map_legend, season_text,
                      area_sentences, search_hotspots, point_export, interval_coverage, heat_cells,
-                     radius_polygon, search_table, add_heat, group_points, view_box, dots_in_view,
+                     radius_polygon, search_table, add_heat, group_points, view_box, dots_in_view, with_heat_rank,
                      map_summary, heat_square)
 
 
@@ -261,24 +261,27 @@ class SimpleMapTests(unittest.TestCase):
             self.assertEqual(len(points), 1)
             self.assertEqual(points.lat.iloc[0], -18.19)
 
-    def test_dots_are_coloured_by_age_with_plain_popup(self):
-        days = pd.Series(pd.to_datetime(['2026-11-02', '2026-11-01', '2026-10-27', '2026-10-26']))
-        self.assertEqual(list(age_class(days, date(2026, 11, 2))), [2, 1, 1, 0])
-        points = pd.DataFrame({'lat': [-18.19, -10.0], 'lon': [-56.41, -50.0], 'data': days[:2],
-                               'hora_utc': [1530, 200], 'satelite': ['S-NPP', 'Terra']})
+    def test_one_colour_dots_with_simple_popup(self):
+        points = pd.DataFrame({'lat': [-18.19, -10.0], 'lon': [-56.41, -50.0],
+                               'data': pd.to_datetime(['2026-11-02', '2026-11-01']),
+                               'hora_utc': [1530, 200], 'satelite': ['S-NPP', 'Terra'], 'frp': [1.1, 40.]})
+        ranked = with_heat_rank(points)
+        self.assertTrue(ranked.frp_pct.between(0, 99).all())
+        self.assertLess(ranked.frp_pct.iloc[0], 50)                   # 1.1 MW is weak for VIIRS
         import folium
         view = folium.Map(tiles=None, prefer_canvas=True)
-        add_hotspot_locations(view, points, date(2026, 11, 2))
+        add_hotspot_locations(view, ranked)
         html = view.get_root().render()
-        self.assertIn('#FFE14D', html)                     # latest day: yellow
-        self.assertIn('#FF8C1A', html)                     # 2-7 days: orange
+        self.assertIn('#E8251B', html)                                # one colour for every dot
+        self.assertNotIn('#FF8C1A', html)
         self.assertIn('[-56.41, -18.19]', html)
-        self.assertIn('02 Nov 2026, 12:30', html)          # 15:30 UTC -> Brasília time
-        self.assertIn('31 Oct 2026, 23:00', html)          # crossing midnight
-        self.assertIn('older satellite', html)
-        self.assertIn('Latest day', map_legend(date(2026, 11, 2), date(2026, 11, 2)))
-        self.assertNotIn('Older', map_legend(date(2026, 10, 30), date(2026, 11, 2)))
-        self.assertIn('Older', map_legend(date(2026, 10, 1), date(2026, 11, 2)))
+        self.assertIn('02 Nov 2026, 12:30', html)                     # 15:30 UTC -> Brasília time
+        self.assertIn('31 Oct 2026, 23:00', html)                     # crossing midnight
+        for text in ['Seen by', 'When', 'Heat strength', 'stronger than']:
+            self.assertIn(text, html)
+        for removed in ['night pass', 'common scale', 'square', 'normal']:
+            self.assertNotIn(removed, html)
+        self.assertIn('click it', map_legend())
 
     def test_fire_season_in_plain_words(self):
         self.assertEqual(season_text([8, 9, 10]), ('Aug to Oct', 8))
@@ -326,7 +329,6 @@ class SimpleMapTests(unittest.TestCase):
                                            'hora_utc': [130], 'satelite': ['Aqua'], 'frp': [12.34]}))
         self.assertEqual(table.iloc[0]['When (Brasília time)'], pd.Timestamp('2026-11-01 22:30'))
         self.assertIn('older satellite', table.iloc[0]['Seen by'])
-
 
 def app_test():
     return AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=60)
