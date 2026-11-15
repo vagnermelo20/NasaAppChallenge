@@ -6,7 +6,7 @@ Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vag
 ## Como retomar numa conversa nova (comece por aqui)
 1. Leia este arquivo inteiro; depois `specs/tasks.md` (o que está feito/aberto) e `AGENTS.md`.
 2. `git pull` na `main`. Rodar o app: `.venv/Scripts/python.exe -m streamlit run app/app.py` (http://localhost:8501) ou `.claude/launch.json` ("ember-app").
-3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (24 testes) e `.venv/Scripts/python -m app.check_release`.
+3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (26 testes) e `.venv/Scripts/python -m app.check_release`.
 4. O usuário é a **Pessoa A** (dados/ciência); a Pessoa B fez o front-end. Hoje trabalhamos os dois no mesmo repositório, só na `main`.
 
 ## Regras (do usuário)
@@ -33,9 +33,9 @@ Resultado (deixando o ano de fora): Brasil erro anual 1,6%; região 2° × mês 
 Testado e rejeitado: k dia/noite, vizinhança 3×3, climatologia como prior, covariáveis do MODIS por região×mês (P90 FRP etc.).
 
 ## App (app/app.py, Streamlit) — versão para leigos (15/11/2026)
-2 abas: **Map** e **How it works** (7 passos simples). Visual branco estilo Wikipedia (`.streamlit/config.toml`). Sem barra lateral.
-**Map:** período (último dia / 7 / 30 dias / 12 meses / Pick dates com Start date e End date, qualquer data desde 2001); de longe mancha de calor, de perto (zoom ≥ 7) **todas** as bolinhas da parte visível (sob demanda; > 50 mil na tela pede mais zoom), bolinhas de uma cor só; clicar mostra satélite, quando (hora de Brasília) e força do calor (MW e percentil). A área é escolhida **desenhando** no mapa ou **digitando um lugar** (latitude, longitude, km) → "Show fire history for this area"/"Show this place". Logo abaixo do mapa: **todos os focos da área nas datas escolhidas** (tabela + CSV, sem teto). Depois: frases simples, calendário (com "compare with a usual year"), dia/semana/mês, um ano comum, focos por ano, último mês × anos anteriores, demo sem/com harmonização, incerteza antes de 2012, CSV mensal.
-Testes: `.venv/Scripts/python -m unittest app.test_delivery` (24 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
+2 abas: **Map** e **How it works** (6 seções simples + painel "Scientific limits" com o limite natural de 85%). Visual branco estilo Wikipedia (`.streamlit/config.toml`). Sem barra lateral. **Só o registro unificado** na interface (sem nomes de satélite).
+**Map:** aviso grande em preto (bolinhas = detecções cruas; todo o resto = registro unificado); período (último dia / 7 / 30 dias / 12 meses / Pick dates, qualquer data desde 2001); de longe mancha na escala comum com régua fixa, de perto (zoom ≥ 7) **todas** as bolinhas vermelhas da parte visível (> 50 mil pede mais zoom); clicar mostra quando (hora de Brasília) e força do calor (percentil). Área **desenhada** ou **digitada** (lat, lon, km). Abaixo do mapa: **todos os focos da área** (tabela + CSV, sem teto). Depois: frases simples, calendário (com "compare with a usual year"), dia/semana/mês, um ano comum, focos por ano, último mês × anos anteriores, CSV mensal.
+Testes: `.venv/Scripts/python -m unittest app.test_delivery` (26 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
 
 ## Pendências (atualizado 15/11/2026)
 - **Entrega:** link da demo (slides no Canva, público), envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
@@ -84,6 +84,7 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (noite, 21:30): **deck oficial** = Canva da equipe (canva.link/78y8fzbvozzbs0t, design DAHbBWABi_A, 7 slides). Escritos em inglês e salvos: 1 capa (EMBER, desafio completo, Team Melo), 2 desafio (salto de 2012), 3 solução (Clean/Learn/Convert + gráfico do registro único), 4 app (área, calendário, estação), 5 relevância do trabalho + dados NASA usados, 6 arquitetura simples + testes como viabilidade, 7 próximos passos (global, subir de 66% rumo ao teto de 85%), impacto e links. O deck antigo (DAHbA4SUefM) e `docs/EMBER_slides.*` ficaram obsoletos.
 - 15/11/2026 (noite): **aviso grande em preto acima do mapa** (`unified_notice`): as bolinhas vermelhas são as detecções cruas de cada satélite (não unificadas); todo o resto (mancha, totais, calendário, gráficos) usa o registro unificado. Gráficos novos para slides: `reports/slides/results_summary.png` e `reports/slides/test_results_by_area.png` (100% Brasil/ano, 92% regiões/ano, 66% regiões/mês, teto 85% de dois VIIRS iguais). 26 testes ok.
 - 15/11/2026 (tarde, 17:30): **slides no Canva** com imagens reais (gráfico do registro como os satélites viram, registro único 2001–2025, prova antes/depois com 66%, 4 prints do app, mapa set/2024, QR novo e link corrigido); imagens em `reports/slides/`. Equipe: **Team Melo** — Vagner Melo (dados/ciência) e Nathália Mello (app); preenchido na capa, no README e em `docs/submissao_spaceapps.md`.
 - 15/11/2026 (tarde, 16:50): puxado o **L16 da Nathália** (busca com filtro exato da área no DuckDB, totais por SQL, cache limitado, erros visíveis, data do dado mais novo, textos mais honestos, painel "Scientific limits"). Mantido isso, mas **desfeito o que ia contra as decisões do usuário**: CSV e tabela de focos de novo só unificados (sem `satellite`, `frp_mw`, `daynight`, MW); tabela e CSV da área de novo **completos, sem páginas** (nova `area_points`, CSV montado só no clique; 2001–2026 em 300 km = 2.102.367 focos em ~7 s); How it works de volta em palavras simples (detalhes técnicos só no painel escondido). `search_hotspots` paginado e `area_point_totals` continuam (testados). 26 testes ok.

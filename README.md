@@ -1,204 +1,110 @@
-# Harmonized Burning Activity Calendar — MODIS × VIIRS
+# EMBER — Where and when does Brazil burn?
 
-NASA Space Apps Challenge 2026 · Brazil pilot
+NASA Space Apps Challenge 2026 · Challenge: **Harmonization of MODIS and VIIRS Hot Spots** · Team Melo
 
 **Live app:** https://ember-fire-calendar.streamlit.app
 
-An interactive web application for exploring when burning activity occurs in a
-selected region. It combines a monthly calendar, historical comparisons,
-seasonality charts and downloadable data, with the goal of comparing satellite
-records on a consistent VIIRS-equivalent scale.
+EMBER joins 25 years of NASA satellite fire detections over Brazil (2001–2026) into **one single,
+consistent record**, and puts it in a free web app that anyone can use without knowing anything
+about satellites.
 
-**Status:** the application now uses the delivered real harmonized dataset:
-1,252,185 cell-month records for 2001–2026 (2026 provisional; months with missing observation days flagged).
-The map, calendar, trends and CSV exports are connected to this delivery.
-Final-method validation is complete: the 0.25° cell peak-month criterion (80%) was not met
-(73.7%; 90.4% within ±1 month); see the methodology for all scales.
-The delivered archive ends in November 2026 (incomplete). October 2026 is the
-latest complete month. Dates described as "latest" refer to the archive, not a
-live fire-monitoring feed.
+## The problem
 
-## Why harmonization matters
+The older MODIS satellites (since 2001, ~1 km pixels) and the newer VIIRS (since 2012, 375 m pixels)
+see the same fires differently: VIIRS counts about 4× more hot spots because it also sees small fires.
+Put side by side, the record shows a false jump in 2012. Without harmonization, Brazil's fires seem
+to rise after 2012; with it, the 2000s actually burned more (1.73 million hot spots per year in
+2001–2011 vs 1.22 million in 2012–2025).
 
-MODIS and VIIRS detect active fire hotspots differently. A direct switch between
-their raw counts can introduce a sensor-related discontinuity. The project aims
-to preserve the historical MODIS record while providing continuity with VIIRS.
+## The method (not machine learning)
 
-Hotspots are satellite detections, not unique fires or burned area. The app does
-not forecast ignition or provide operational emergency alerts.
+1. **Clean:** MODIS confidence ≥ 30, VIIRS nominal/high; one static-source mask (gas flares,
+   industry, volcanoes) applied to every year.
+2. **Learn:** in 2012–2021 both satellites flew together. For Terra and Aqua separately, we compute
+   the ratio VIIRS ÷ MODIS per 5° block and calendar month, refined in 2° regions with Bayesian
+   shrinkage toward the block, and combine Terra and Aqua by inverse variance.
+3. **Convert:** MODIS 2001–2011 is converted to the VIIRS scale; real VIIRS is used from 2012 on.
+   Each MODIS hot spot carries its own harmonized weight, so any area and period adds up consistently.
 
-## Features
+Full details: [docs/metodologia.md](docs/metodologia.md) · metrics: [reports/metrics.json](reports/metrics.json).
 
-**EMBER** is built so that anyone can use it, with no satellite knowledge. It has two tabs:
+## Validation (each year 2012–2021 hidden from calibration, then predicted)
 
-- **Map** — NASA FIRMS detections over satellite imagery with place names.
-  The initial period is the latest seven days available in the archive. Select
-  one day, seven days, thirty days, twelve months or custom dates since 2001.
-  At national scale, orange/yellow areas aggregate harmonized activity; zoom in
-  to see individual red dots. Up to 50,000 dots are loaded for the visible map
-  extent; denser views keep the aggregate layer and ask you to zoom in.
-  Click a dot for its time in Brasília and relative heat-strength percentile.
-  Draw an area on the same map and press **Show fire history for this area**, or
-  enter latitude, longitude and radius. Full-selection totals accompany a table
-  of up to 5,000 detections per page. **Download this page (CSV)** exports that
-  page only; select other pages or narrow the dates/area for further records.
-  The page below explains seasonality, peak months, preparation timing and the
-  latest complete month versus history, with calendars, charts and monthly CSV.
-- **How it works** — a plain-language explanation of the method, its uses and
-  limitations, with scientific context for the reported validation results.
+| Test | Result |
+|---|---|
+| Brazil, each year | mean error **1.6%** (all years within ±20%) |
+| Brazil, month by month | correlation **0.998** |
+| ~200 km (2°) regions, each year | **92%** within ±20% |
+| ~200 km (2°) regions, each month | **66%** within ±20% (median difference 13.5%) |
+| Natural limit: two identical VIIRS satellites, each month | **85%** within ±20% |
+| Peak month in single 0.25° cells | 73.7% exact, 90.4% within ±1 month |
 
-The dates remain unrestricted within the archive; detailed observations are
-paginated to bound the amount loaded into Python. Polygon filtering happens
-inside the query before pagination. Full-selection totals are computed by SQL
-aggregation rather than by loading all matching detections into a dataframe.
-This improves memory behavior but is not a guarantee of response time for
-every area, long interval or concurrent workload.
+Bigger areas and longer periods are more reliable. Even two identical satellites agree in only 85% of
+months (different pass times, clouds, short fires), so no conversion can reach 100% month by month.
+We also tested and rejected day/night factors, neighbourhood smoothing, power-law and quantile-mapping
+conversions.
 
-The calibration is monthly. Pre-2012 daily weights and short-interval totals
-are approximations; a shared display scale does not establish exact daily
-comparability or equal physical fire severity. Monthly and annual regional
-comparisons have stronger validation evidence. Heat-strength percentiles are
-relative ranks within each instrument's record, not harmonized FRP measurements.
+## The app
 
-Hot spots are satellite detections, not unique fires or burned area.
+Two tabs: **Map** and **How it works**.
+
+- **Map:** any day or period since January 2001. From far away, hot spots glow on the single common
+  scale with a fixed ruler, so the same month in 2005 and 2024 can be compared directly. Zoom in and
+  every hot spot on screen becomes a red dot (raw detections, loaded on demand); click one to see when
+  it was seen (Brasília time) and its heat strength as a percentile.
+- **Your area:** draw an area or type a latitude, longitude and distance. EMBER lists every hot spot
+  in it (table + CSV, no row limit) and shows plain sentences (fire season, best time to get ready,
+  worst year, last month vs usual), a year × month fire calendar, hot spots per day/week/month,
+  a usual year, hot spots per year and a monthly CSV. Everything except the red dots uses the unified record.
+- **How it works:** the method in plain words, with the scientific limits one click away.
+
+Hot spots are satellite detections, not separate fires or burned area. The archive ends on
+2 November 2026 (no VIIRS S-NPP data after that date); it is not a live emergency feed.
+
+### CSV exports
+
+- **Hot spots in your area:** `date_utc`, `time_utc`, `latitude`, `longitude`,
+  `heat_strength_percentile`, `hotspots_common_scale`.
+- **Monthly:** `year`, `month`, `hotspots`, `anomaly_pct`, `incomplete`, `dataset`, `region_wkt`.
+
+## Data
+
+All from [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/), Brazil:
+
+- MODIS Collection 6.1 (MCD14ML), Terra and Aqua, 2001–2026;
+- VIIRS S-NPP 375 m (VNP14IMG), 2012–2026;
+- FIRMS API for 2026;
+- VIIRS NOAA-20 375 m, 2018–2021, only as a reference (how much two identical satellites agree).
+
+22.5 million hot spots in total. Processed files are in `data/processed/` (raw archives are not versioned).
 
 ## Run locally
 
-Run all commands from the repository root. Development was tested with Python 3.13.
-
-### Windows (PowerShell)
-
-```powershell
-py -3.13 -m venv .venv
-.venv/Scripts/python.exe -m pip install -r requirements.txt
-.venv/Scripts/python.exe -m streamlit run app/app.py
-```
-
-### Linux / macOS
-
 ```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -r requirements.txt
-.venv/bin/python -m streamlit run app/app.py
+python -m venv .venv
+.venv/Scripts/python -m pip install -r requirements.txt      # Linux/macOS: .venv/bin/python
+.venv/Scripts/python -m streamlit run app/app.py
 ```
 
-Open `http://localhost:8501`. The real scientific files are tracked in the
-repository, so no mock generation or raw-archive download is needed to run the app.
-The optional `app/make_mock.py` remains available for development without the
-real file; its output is ignored whenever the real harmonized file exists.
-
-The mock generator uses MODIS × 3.8 before 2012 and VIIRS counts thereafter.
-This provisional factor is **not validated harmonization**. The mock is local,
-ignored by Git, and identified in the interface, chart titles and CSV exports.
-
-When `data/processed/harmonized.parquet` exists, the app prioritizes it over the
-mock and checks its basic contract. An invalid real file is reported rather
-than silently replaced by mock data. A valid file alone does not establish
-scientific acceptance; the science team must confirm its calibration and validation.
-
-## Data and delivered scientific method
-
-Source: [NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/), including the
-[historical archive](https://firms.modaps.eosdis.nasa.gov/download/).
-The existing exploratory pipeline uses MODIS Collection 6.1 and VIIRS S-NPP
-375 m country files for Brazil, 2001–2025, plus 2026 from the FIRMS API (standard data to 31 July,
-near-real-time after; no S-NPP data since 2 November 2026).
-
-The delivered method in [docs/metodologia.md](docs/metodologia.md) calibrates Terra and Aqua
-separately against S-NPP during 2012–2021, by 5° block and calendar month,
-with a national fallback and a 2° local refinement shrunk toward the block value.
-It combines Terra and Aqua by inverse-variance weighting, accounting for the
-Terra-only period, and uses processed S-NPP observations from 2012 onward.
-The static-source mask and incomplete-month flags are included in the delivery.
-The delivered methodology and `reports/metrics.json` record final-method
-validation. National monthly correlation is 0.998. At the 2° regional scale,
-66% of monthly comparisons (at least 100 observed VIIRS hotspots) and 92% of
-annual comparisons (at least 300) fall within ±20%. These figures describe
-different scales and evaluation subsets, not general application accuracy.
-The official 0.25° cell peak-month target was not met: 73.7% exact-month
-agreement against the 80% target; 90.4% fall within ±1 month. For small areas,
-interpret peak timing within about one month rather than as an exact date.
-
-### Input contract
-
-One row per 0.25° cell and UTC month:
-
-| Field | Meaning |
-|---|---|
-| `lat`, `lon` | Southwest corner of the cell; its center is +0.125° in each axis |
-| `ano`, `mes` | Year and month |
-| `focos_harmonizados` | Nonnegative activity in VIIRS-equivalent hotspot units |
-| `fonte` | `modis_convertido` or `viirs` |
-| `dado_incompleto` | Incomplete observation period |
-
-The app selects cells by their centers. Under the agreed sparse-data contract,
-missing cell-month rows within dataset coverage are treated as zero. Entire
-missing observation months need additional coverage metadata. A selection with
-no dataset cell centers is identified explicitly and should be enlarged.
-
-### Historical comparisons
-
-Each complete target month is compared with the same month in earlier complete
-years within the selected range. The target does not contribute to its own
-baseline. Zero medians, missing history and incomplete target months produce no
-percentage anomaly. Descriptive activity categories use historical percentiles
-and require at least three reference years. They are not predictions.
-
-The monthly CSV contains `year`, `month`, `hotspots`, `anomaly_pct`, `incomplete`,
-`source`, `dataset` and `region_wkt`. The calendar and CSV use the same anomaly
-calculation. Calendar selection uses cell centers; the detailed observation
-table uses detection coordinates, so boundary totals can differ.
-
-The detailed observation CSV exports the **current page only**, with a
-`page-N` suffix in its filename. Columns are `date_utc`, `time_utc` (HH:MM),
-`latitude`, `longitude`, `hotspots_common_scale` (harmonized weight), `satellite`,
-`frp_mw` (raw fire radiative power in MW), `daynight`, and the optional
-`heat_strength_percentile`. The percentile is a relative rank and does not
-replace raw FRP. Full-selection totals above the table cover all matching
-records, independently of the page currently displayed.
-
-## Verification and handoff
-
-```powershell
-.venv/Scripts/python.exe -m unittest app.test_delivery -v
-.venv/Scripts/python.exe -m app.check_release
-```
-
-The release check is read-only and exits with status 2 while required scientific
-artifacts are missing or invalid. Passing it means artifacts are ready for review,
-not that the scientific criteria or browser checks have been accepted.
-
-See [app/VERIFY.md](app/VERIFY.md) for real-browser/mobile checks, integration with
-Person A and the current review handoff. The app is published at the link above.
-The latest pagination, CSV and scientific-copy changes passed 26 automated
-tests and were exercised through the running app's local agent API. In a
-500 km area around (-10, -50), September 2024 returned 186,089 detections on
-38 pages: downloaded pages 1 and 2 contained 5,000 rows each, and page 38
-contained 1,089. The CSV retained FRP, satellite and day/night fields; changing
-dates reset the page to 1. Scientific-copy checks also passed. These checks do
-not validate Chrome rendering, mobile appearance or concurrent-user performance;
-the browser and scientific review handoff remains in VERIFY.md.
+Tests: `.venv/Scripts/python -m unittest app.test_delivery` (26 tests) and
+`.venv/Scripts/python -m app.check_release`.
 
 ## Repository layout
 
 | Path | Purpose |
 |---|---|
 | `app/app.py` | Streamlit application |
-| `app/make_mock.py` | Local development dataset generator |
-| `app/test_delivery.py` | Data and UI regression tests |
-| `app/check_release.py` | Read-only scientific-artifact readiness report |
-| `notebooks/` | Data ingestion and exploratory scientific analysis |
-| `data/processed/` | Monthly grid and delivered harmonized data |
-| `reports/` | Exploratory figures and delivered validation metrics |
-| `specs/` | Requirements, implementation plan and task tracking |
-
-Raw data, the mock, virtual environments and credentials must remain untracked.
-The original notebooks and figures are preserved for the scientific work and presentation.
+| `app/test_delivery.py` | Data and interface tests |
+| `notebooks/` | Download, harmonization (04), validation (05), proof (07), hot spot base (08), daily series (09) |
+| `data/processed/` | Harmonized grid, hot spots by year with their weights, daily/weekly series |
+| `reports/` | Figures and validation metrics; `reports/slides/` has the presentation charts |
+| `docs/` | Methodology and submission text |
+| `specs/` | Spec, plan and tasks |
 
 ## Team Melo
 
-- **Vagner Melo — Data/science:** calibration, coverage, validation and final scientific artifacts.
-- **Nathália Mello — Application:** regional queries, visualization, accessibility and exports.
-- **Joint delivery:** deployment, final credits, presentation, video and Space Apps submission.
+- **Vagner Melo** — data and science: harmonization, validation and scientific artifacts.
+- **Nathália Mello** — web application: queries, visualization, accessibility and exports.
 
-Public app: https://ember-fire-calendar.streamlit.app
+AI coding assistants were used to speed up code, text and review; the idea, method and results were
+defined and checked by the team (see `docs/submissao_spaceapps.md`).
