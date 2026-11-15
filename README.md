@@ -28,21 +28,18 @@ not forecast ignition or provide operational emergency alerts.
 
 **EMBER** is built so that anyone can use it, with no satellite knowledge. It has three tabs:
 
-- **Map** — opens on the NASA FIRMS hot spots of the latest 7 days on satellite imagery with place names,
-  coloured by age like the FIRMS map (yellow = latest day, orange = 2–7 days before, red = older).
-  Choose the latest day, 7 days, 30 days or any dates (up to 92 days). Click a dot to see when
-  (Brasília time) and which satellite saw it. Draw a box or shape on the **same map** and press
-  **Show fire history for this area**. Below the map, the area (or all of Brazil) is explained in plain
-  sentences: fire season, worst month, when to get ready, worst year and how the last full month compares
-  with a usual one; then a year × month fire calendar (blue = few, red = many), hot spots per year,
-  a short "Why can we compare 2005 with 2024?" demo and a CSV download.
-- **How it works** — the project in seven simple steps: satellites look for heat, the old and the new
-  satellite, the false jump in 2012, what we did (like converting an old currency), how good it is, what you
-  can do with EMBER and what to keep in mind.
-- **For experts** — hot spot search by exact dates with CSV (UTC, FRP, harmonized weight) and same-date
-  comparison across years; daily/weekly series with the satellite used each day; calendar with anomalies,
-  latest month vs history, pre-2012 uncertainty bands for 2° regions; trends and seasonality; full
-  methodology and validation metrics.
+- **Map** — NASA FIRMS hot spots of the latest 7 days on satellite imagery with place names. From far away
+  they show as glowing orange/yellow areas; zoom in to a smaller area and every hot spot in view is loaded as a dot coloured by age
+  (yellow = latest day, orange = 2–7 days before, red = older). Choose the latest day, 7 days, 30 days, 12 months or any
+  dates since 2001 (no limit). Click a dot to see when (Brasília time) and which satellite saw it. Draw a box or shape
+  on the **same map** and press **Show fire history for this area**. Everything below is for that area
+  (or all of Brazil): plain sentences (fire season, worst month, when to get ready, worst year, last full month
+  vs usual), a year × month fire calendar (optionally compared with a usual year), hot spots per day, week or
+  month, a usual year, hot spots per year, "was the last month worse than usual?", a short "Why can we compare
+  2005 with 2024?" demo, the uncertainty for years before 2012 and a CSV download.
+- **How it works** — the project in seven simple steps.
+- **Search hot spots** — type a latitude, longitude, a distance in km and any dates since 2001; see the hot spots inside that
+  circle on a map and in a table, and download them as CSV (with UTC time, FRP and harmonized weight).
 
 Hot spots are satellite detections, not unique fires or burned area.
 

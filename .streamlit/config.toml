@@ -1,26 +1,27 @@
+# Simple white look, in the spirit of Wikipedia: white page, black text, thin grey lines,
+# serif headings and the classic link blue only for buttons and links.
 [theme]
-base = "dark"
-primaryColor = "#62C7F2"
-backgroundColor = "#0B111B"
-secondaryBackgroundColor = "#142031"
-textColor = "#EDF3FC"
-linkColor = "#88D8FA"
-borderColor = "#29384D"
+base = "light"
+primaryColor = "#3366CC"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F8F9FA"
+textColor = "#202122"
+linkColor = "#3366CC"
+borderColor = "#A2A9B1"
 baseFontSize = 16
-baseRadius = "0.65rem"
-buttonRadius = "0.5rem"
+baseRadius = "0.15rem"
+buttonRadius = "0.15rem"
 showWidgetBorder = true
-showSidebarBorder = true
-headingFont = "sans-serif"
-headingFontWeights = [650, 650, 600, 600, 600, 600]
-headingFontSizes = ["2rem", "1.4rem", "1.15rem", "1rem", "0.9rem", "0.85rem"]
+font = "sans-serif"
+headingFont = "serif"
+headingFontWeights = [400, 400, 600, 600, 600, 600]
+headingFontSizes = ["1.9rem", "1.5rem", "1.2rem", "1rem", "0.9rem", "0.85rem"]
 metricValueFontSize = "1.6rem"
 paddingTop = "1.2rem"
 paddingBottom = "1rem"
 
 [theme.sidebar]
-backgroundColor = "#101A28"
-secondaryBackgroundColor = "#19273A"
-textColor = "#EDF3FC"
-borderColor = "#2D3F57"
-paddingTop = "1.5rem"
+backgroundColor = "#F8F9FA"
+secondaryBackgroundColor = "#EAECF0"
+textColor = "#202122"
+borderColor = "#A2A9B1"

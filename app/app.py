@@ -4,7 +4,6 @@ import json
 import math
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from time import perf_counter
 from zoneinfo import ZoneInfo
 
 import duckdb
@@ -15,8 +14,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 import shapely
 import streamlit as st
-from folium.plugins import Draw
-from shapely.geometry import shape
+from branca.element import MacroElement, Template
+from folium.plugins import Draw, HeatMap
+from shapely.geometry import Polygon, shape
 from streamlit_folium import st_folium
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,7 +24,6 @@ REAL = ROOT / 'data/processed/harmonized.parquet'
 MOCK = ROOT / 'data/processed/harmonized_mock.parquet'
 MONTHS = list(calendar.month_abbr)[1:]
 MAX_MAP_POINTS = 50_000   # above this the browser map becomes slow and unreadable
-FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
 
 
 @st.cache_data
@@ -46,9 +45,11 @@ def hotspot_locations(path: str, version: int, year: int, month: int,
 
 @st.cache_data
 def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
-                    sensor: str, region_wkt: str | None, limit: int = 200_000) -> tuple[pd.DataFrame, bool]:
-    if end < start or (end - start).days + 1 > 92:
-        raise ValueError('Choose an inclusive interval of 1–92 days.')
+                    sensor: str, region_wkt: str | None, limit: int | None = None,
+                    newest_first: bool = False) -> tuple[pd.DataFrame, bool]:
+    """All hot spots in the dates and area (no cap unless a limit is given)."""
+    if end < start:
+        raise ValueError('The end date must be on or after the start date.')
     if not files:
         raise ValueError('No point files are available for this interval.')
     predicates = {'All available sensors': '', 'VIIRS S-NPP': " AND satelite='S-NPP'",
@@ -63,20 +64,15 @@ def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
         west, south, east, north = geometry.bounds
         sql += ' AND lon BETWEEN ? AND ? AND lat BETWEEN ? AND ?'
         args.extend([west, east, south, north])
-    chunks, count = [], 0
+    order = ' DESC' if newest_first else ''
     with duckdb.connect() as con:
-        cursor = con.execute(sql + ' ORDER BY data, hora_utc, satelite, lat, lon', args)
-        while rows := cursor.fetchmany(10_000):
-            batch = pd.DataFrame(rows, columns=columns)
-            if geometry is not None:
-                batch = batch[shapely.contains_xy(geometry, batch.lon, batch.lat)]
-            batch = batch.iloc[:limit + 1 - count]
-            chunks.append(batch)
-            count += len(batch)
-            if count > limit:
-                break
-    points = pd.concat(chunks, ignore_index=True) if chunks else pd.DataFrame(columns=columns)
-    return points.iloc[:limit].copy(), count > limit
+        points = con.execute(sql + f' ORDER BY data{order}, hora_utc{order}, satelite, lat, lon', args).df()
+    if geometry is not None and not points.empty:
+        points = points[shapely.contains_xy(geometry, points.lon.to_numpy(), points.lat.to_numpy())]
+    points = points.reset_index(drop=True)
+    if limit is not None and len(points) > limit:
+        return points.iloc[:limit].copy(), True
+    return points, False
 
 
 def point_export(points: pd.DataFrame) -> pd.DataFrame:
@@ -106,108 +102,6 @@ def interval_coverage(start: date, end: date, coverage: pd.DataFrame) -> str:
                               'incompleto'].any()) for month in months):
         return 'Provisional · intersects an incomplete month'
     return 'No monthly completeness flag'
-
-
-def sensor_interval_coverage(sensor: str, start: date, end: date) -> bool:
-    # The point archive follows the scientific series, not an all-sensor archive.
-    if sensor == 'VIIRS S-NPP':
-        return start >= date(2012, 1, 1)
-    if sensor == 'MODIS Terra + Aqua':
-        return end < date(2012, 1, 1)
-    return True
-
-
-def show_hotspot_search(coverage: pd.DataFrame) -> None:
-    st.subheader('Search hotspot observations')
-    st.caption('Observation by sensor · exact UTC dates · up to 92 days and 200,000 detections. '
-               'Raw sensor counts are not directly comparable across years.')
-    st.caption('This science archive contains MODIS before 2012 and S-NPP from 2012 onward. '
-               'Select All available sensors to compare across that transition.')
-    first, last = coverage.iloc[0], coverage.iloc[-1]
-    minimum = date(int(first.ano), int(first.mes), 1)
-    maximum = date(int(last.ano), int(last.mes), calendar.monthrange(int(last.ano), int(last.mes))[1])
-    latest_complete = coverage[~coverage.incompleto].iloc[-1] if (~coverage.incompleto).any() else last
-    initial = date(int(latest_complete.ano), int(latest_complete.mes), 1)
-    with st.form('hotspot_search_form'):
-        dates = st.date_input('Date interval · UTC (inclusive)', (initial, initial + timedelta(days=6)),
-                              min_value=minimum, max_value=maximum, key='search_dates')
-        sensor = st.selectbox('Observation sensor', ['All available sensors', *FIRE_SENSORS], key='search_sensor')
-        use_region = st.checkbox('Use the area drawn on the Map', value=st.session_state.get('regiao') is not None,
-                                 key='search_use_region')
-        available_years = sorted(int(y) for y in coverage.ano.unique())
-        compare = st.multiselect('Compare the same dates in years (up to 6)', available_years,
-                                 default=available_years[-3:], max_selections=6, key='search_years',
-                                 help='The year applies to the interval start; intervals may cross New Year.')
-        submitted = st.form_submit_button('Search observations', key='search_submit', type='primary')
-    if submitted:
-        if len(dates) != 2 or dates[1] < dates[0] or (dates[1] - dates[0]).days + 1 > 92:
-            st.error('Choose both dates, spanning 1–92 days inclusive.')
-            st.session_state.pop('hotspot_query', None)
-        else:
-            st.session_state['hotspot_query'] = (dates[0], dates[1], sensor,
-                                                st.session_state.get('regiao') if use_region else None,
-                                                tuple(compare), st.session_state.get('region_label') if use_region else 'Brazil')
-    query = st.session_state.get('hotspot_query')
-    if not query:
-        st.info('Choose dates and a sensor, then search. Draw an area on the Map tab to restrict the query.')
-        return
-    start, end, sensor, region, years, area = query
-    st.caption(f'Applied search: {start.isoformat()} to {end.isoformat()} · {sensor} · {area}')
-    begin = perf_counter()
-    if not sensor_interval_coverage(sensor, start, end):
-        st.warning('The selected sensor does not cover this entire interval in the science archive. '
-                   'Select All available sensors or change the dates.')
-        return
-    try:
-        points, exceeded = search_hotspots(point_files(start, end), start, end, sensor, region)
-    except (ValueError, duckdb.Error) as error:
-        st.warning(str(error))
-        return
-    if exceeded:
-        st.warning('More than 200,000 detections match. Narrow the dates, sensor or area. '
-                   'No partial table, CSV or comparison is presented.')
-        return
-    status = interval_coverage(start, end, coverage)
-    if status != 'No monthly completeness flag':
-        st.warning(status + '. Daily completeness is not established by the monthly flags.')
-    st.caption(f'{len(points):,} detections · Query {perf_counter()-begin:.3f} s · {status}. '
-               'Region filtering uses detection coordinates, rather than grid-cell centers.')
-    export = point_export(points)
-    st.dataframe(export, hide_index=True, alt='Satellite detections with exact UTC dates, times, coordinates, FRP and harmonized weights.')
-    st.download_button('Download hotspot CSV', export.to_csv(index=False).encode('utf-8-sig'),
-                       f'firms_observations_{start}_{end}.csv', 'text/csv', key='search_csv', on_click='ignore')
-    if points.empty:
-        st.info('No recorded detections match this query. This does not establish that no fire occurred.')
-    if years:
-        st.subheader('Same date interval across years')
-        st.caption('Comparison uses the sum of harmonized weights, not raw counts. Before 2012 this is approximate: '
-                   'weights are calibrated monthly, not daily. The delivered monthly uncertainty bands are not '
-                   'calibrated for exact-day intervals; no numerical confidence interval is claimed here.')
-        comparisons = []
-        for year in years:
-            try:
-                shifted_start = start.replace(year=year)
-                shifted_end = end.replace(year=year + end.year - start.year)
-                if not sensor_interval_coverage(sensor, shifted_start, shifted_end):
-                    comparisons.append({'Start year': year, 'VIIRS-equivalent activity': None,
-                                        'Coverage': 'Selected sensor unavailable for the entire interval'})
-                    continue
-                found, too_many = search_hotspots(point_files(shifted_start, shifted_end), shifted_start, shifted_end, sensor, region)
-                label = interval_coverage(shifted_start, shifted_end, coverage)
-                valid = not too_many and label == 'No monthly completeness flag'
-                comparisons.append({'Start year': year, 'Start date': shifted_start, 'End date': shifted_end,
-                                    'VIIRS-equivalent activity': float(found.peso_harmonizado.sum()) if valid else None,
-                                    'Estimate': 'Approximate · MODIS conversion' if year < 2012 else 'Observed VIIRS weights',
-                                    'Coverage': 'Over 200,000 detections · narrow query' if too_many else label})
-            except (ValueError, duckdb.Error) as error:
-                comparisons.append({'Start year': year, 'VIIRS-equivalent activity': None,
-                                    'Coverage': f'Unavailable: {error}'})
-        table = pd.DataFrame(comparisons)
-        st.dataframe(table, hide_index=True, alt='Same date interval in selected years, compared using harmonized weights with coverage caveats.')
-        st.caption('Incomplete or unavailable intervals are excluded from numerical comparisons. '
-                   'February 29 is unavailable in non-leap years; dates are never silently shifted.')
-        st.download_button('Download interval comparison CSV', table.to_csv(index=False).encode('utf-8-sig'),
-                           f'firms_interval_comparison_{start}_{end}.csv', 'text/csv', key='search_comparison_csv', on_click='ignore')
 
 
 def data_source() -> tuple[str, int]:
@@ -433,7 +327,7 @@ def show_monthly_uncertainty(series: pd.DataFrame, region_wkt: str | None) -> No
     years = sorted(int(year) for year in series.ano.unique() if int(year) < 2012)
     if not years:
         return
-    with st.expander('Pre-2012 uncertainty · 2° monthly regions', key='uncertainty_panel', on_change='rerun') as panel:
+    with st.expander('How sure are we about the years before 2012?', key='uncertainty_panel', on_change='rerun') as panel:
         if not panel.open:
             return
         st.caption('Explore the delivered nominal 90% calibration band for a complete 2° region and UTC month. '
@@ -505,168 +399,12 @@ def show_monthly_uncertainty(series: pd.DataFrame, region_wkt: str | None) -> No
             st.warning(f'The monthly uncertainty explorer is unavailable: {error}')
 
 
-def show_comparison(series: pd.DataFrame, prefix: str) -> None:
-    summary = latest_comparison(series)
-    st.subheader('Latest complete month vs history')
-    if not summary:
-        st.info('No complete observed month is available in this selection. Incomplete months remain visible in the calendar and CSV.')
-        return
-    year, month = summary['year'], summary['month']
-    delta = summary['delta']
-    with st.container(horizontal=True):
-        st.metric(f'{MONTHS[month - 1]} {year} · hotspots', f"{summary['value']:,.0f}",
-                  delta=f'{delta:+.1f}% vs historical median' if delta is not None else None,
-                  delta_color='off')
-        st.metric('Historical activity category', summary['category'])
-    st.caption(f"Baseline: {len(summary['history'])} earlier complete years within the selected range. "
-               'Categories describe past activity, not forecasts or operational alerts. At least 3 years are required for a category.')
-    if summary['newer_incomplete']:
-        st.warning('Newer incomplete months: ' + ', '.join(summary['newer_incomplete'])
-                   + '. Their totals are provisional. This comparison uses the latest complete month; '
-                   'incomplete months remain visible in the calendar and CSV.')
-    if pd.notna(summary['median']) and summary['median'] == 0:
-        st.caption('Historical median is zero, so a percentage change is undefined.')
-    comparisons = series[(series.mes == month) & series.focos.notna()].sort_values('ano')
-    fig = go.Figure(go.Bar(
-        x=comparisons.ano, y=comparisons.focos,
-        marker_color=['#D7191C' if y == year else '#4A90C2' for y in comparisons.ano],
-        marker_pattern_shape=['/' if flag else '' for flag in comparisons.incompleto],
-        name='Hotspots', hovertemplate='Year: %{x}<br>Hotspots: %{y:,.1f}<extra></extra>'))
-    if pd.notna(summary['median']):
-        fig.add_hline(y=float(summary['median']), line_dash='dash',
-                      annotation_text='Usual level (median of earlier years)')
-    fig.update_layout(title=f'{prefix}Is {MONTHS[month - 1]} {year} above or below the usual level? (red bar = {year})',
-                      xaxis_title='Year', yaxis_title='VIIRS-equivalent hotspots / month', height=340)
-    st.plotly_chart(fig, key='historical_comparison', alt='Same-month activity across years, with latest year highlighted and prior-year median.',
-                    config={'displaylogo': False})
-
-
-def show_trends(series: pd.DataFrame, prefix: str) -> None:
-    annual = series.groupby('ano').agg(total=('focos', lambda x: x.sum(min_count=1)),
-                                     observed=('focos', 'count'), incomplete=('incompleto', 'any')).reset_index()
-    annual['complete'] = (annual.observed == 12) & ~annual.incomplete
-    fig = go.Figure()
-    for before, label, color in [(True, 'MODIS converted', '#9AA5B1'),
-                                  (False, 'VIIRS observed', '#F28E2B')]:
-        part = annual[annual.ano.lt(2012) == before]
-        fig.add_trace(go.Scatter(x=part.ano, y=part.total.where(part.complete),
-                                mode='lines+markers', name=label, connectgaps=False,
-                                line=dict(color=color)))
-    partial = annual[~annual.complete & annual.total.notna()]
-    fig.add_trace(go.Scatter(x=partial.ano, y=partial.total, mode='markers',
-                            name='Partial-year total', marker=dict(symbol='diamond-open', size=11, color='#FDAE61')))
-    if annual.ano.min() < 2012:
-        fig.add_vrect(x0=float(annual.ano.min()) - .5, x1=min(2011.5, float(annual.ano.max()) + .5),
-                      fillcolor='#4A90C2', opacity=.12, line_width=0)
-    fig.update_layout(title=f'{prefix}Annual activity', xaxis_title='Year',
-                      yaxis_title='VIIRS-equivalent hotspots / year', height=360)
-    st.plotly_chart(fig, key='annual_trend', alt='Annual activity with converted MODIS years shaded and partial years shown as open diamonds.',
-                    config={'displaylogo': False})
-    st.caption('Open diamonds are incomplete-year totals and should not be compared directly with complete years.')
-    complete = series[~series.incompleto & series.focos.notna()]
-    seasonal = complete.groupby('mes').agg(median=('focos', 'median'), years=('focos', 'count')).reindex(range(1, 13))
-    seasonal['month'] = MONTHS
-    fig = px.bar(seasonal, x='month', y='median', color_discrete_sequence=['#F46D43'],
-                 hover_data=['years'], labels={'month': 'Month (UTC)', 'median': 'Median hotspots / month', 'years': 'Complete years'},
-                 title=f'{prefix}Seasonality across complete months')
-    st.plotly_chart(fig, key='seasonality', alt='Median monthly activity and number of complete years used for each month.',
-                    config={'displaylogo': False})
-
-
 @st.cache_data
 def read_metrics(path: str, version: int) -> dict:
     data = json.loads(Path(path).read_text(encoding='utf-8'))
     if not isinstance(data, dict):
         raise ValueError('Metrics must be a JSON object.')
     return data
-
-
-def show_validation_summary(data: dict) -> None:
-    proof = data.get('prova_harmonizacao', {})
-    final = proof.get('nacional_loyo_metodo_final', {})
-    if final:
-        st.subheader('Delivered method · validation summary')
-        annual = next((row for row in proof.get('por_escala_de_tempo_2deg', []) if row.get('escala') == 'ano'), {})
-        monthly = next((row for row in proof.get('por_escala_de_tempo_2deg', []) if row.get('escala') == 'mês'), {})
-        with st.container(horizontal=True):
-            st.metric('National monthly correlation', f"{final['correlacao_mensal']:.3f}")
-            st.metric('Mean annual absolute error · national', f"{final['erro_anual_medio_abs'] * 100:.2f}%")
-            st.metric('Annual agreement within ±20% · 2° regions', annual.get('dentro de ±20%', 'Not reported'))
-            st.metric('Monthly agreement within ±20% · 2° regions', monthly.get('dentro de ±20%', 'Not reported'))
-        st.caption('Final-method results reported by the science team. Leave-one-year-out, 2012–2021. '
-                   'Regional agreement subsets: at least 100 VIIRS hotspots per month or 300 per year. '
-                   'Annual regional agreement is not the cell-scale peak-month acceptance criterion.')
-        rows = [{'Region size': r.get('tamanho da região'), 'Median monthly difference': r.get('convertido: diferença mediana'),
-                 'Months within ±20%': r.get('convertido: dentro de ±20%'), 'Correlation': r.get('correlação')}
-                for r in proof.get('por_tamanho_regiao', [])]
-        if rows:
-            st.dataframe(pd.DataFrame(rows), hide_index=True,
-                         alt='Final-method agreement by region size, restricted to the cases defined by the science team.')
-        st.caption('Regional monthly comparisons above use cases with at least 100 observed VIIRS hotspots. '
-                   'They are aggregate comparisons, not individual-fire matching.')
-    acceptance = data.get('aceite_A2', {})
-    if acceptance.get('passa') is False:
-        cell = data.get('loyo_2012_2021', {}).get('celula', {})
-        peak = cell.get('acerto_mes_pico')
-        peak_text = f'{peak * 100:.1f}%' if isinstance(peak, (int, float)) else 'not reported'
-        tolerance = cell.get('acerto_mes_pico_mais_menos_1')
-        tolerance_text = f'{tolerance * 100:.1f}%' if isinstance(tolerance, (int, float)) else 'not reported'
-        st.warning(f'A2 was not met at the 0.25° cell scale: peak-month accuracy is {peak_text}, '
-                   f'below the 80% target; within ±1 month it is {tolerance_text}. '
-                   'These are the final-method leave-one-year-out results. '
-                   'Regional or annual agreement does not replace the cell-scale acceptance criterion.')
-
-
-def show_methodology(is_mock: bool, coverage: pd.DataFrame | None = None) -> None:
-    st.subheader('Methodology')
-    if coverage is not None:
-        first, last = coverage.iloc[0], coverage.iloc[-1]
-        st.info(f'Delivered archive: {int(first.ano)}-{int(first.mes):02d} to {int(last.ano)}-{int(last.mes):02d}. '
-                'References to a 2026 API extension in the document describe planned work; it is not included in this delivery.'
-                if int(last.ano) < 2026 else 'Archive includes the delivered current-year extension; incomplete months remain provisional.')
-    metrics = ROOT / 'reports/metrics.json'
-    if metrics.exists():
-        try:
-            data = read_metrics(str(metrics), metrics.stat().st_mtime_ns)
-            show_validation_summary(data)
-            with st.expander('Full metrics · includes the earlier method and version notes'):
-                st.json(data)
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            st.warning(f'Validation metrics could not be loaded: {error}')
-    else:
-        st.caption('Validation metrics pending — no accuracy claims are made for the mock.')
-    doc = ROOT / 'docs/metodologia.md'
-    if doc.exists():
-        st.markdown(doc.read_text(encoding='utf-8'))
-    else:
-        st.info('The science team has not delivered the final methodology document yet.')
-        st.markdown('This prototype aggregates NASA FIRMS hotspots into 0.25° cells and UTC calendar months. '
-                    'Region selection includes cells by their centers. The planned harmonization converts historical MODIS '
-                    'activity to the VIIRS scale; final calibration and out-of-sample validation are pending.')
-    if is_mock:
-        st.warning('The current mock uses MODIS × 3.8 before 2012 and VIIRS counts thereafter. '
-                   'This provisional factor is not the final scientific method.')
-    st.markdown('**Historical comparisons:** each month is compared with the same month in earlier complete years '
-                'within the selected range. Zero medians, missing history and incomplete target months have no percentage anomaly. '
-                'The activity categories use the 25th, 75th and 90th percentiles and require at least three historical years. '
-                'They are descriptive categories, not fire predictions.\n\n'
-                '**Coverage:** missing cell-month records are treated as zero within the source coverage, as agreed in the data contract. '
-                'Entire missing observation months require additional coverage metadata. Hotspots do not measure burned area or unique fires.')
-    for filename, description in [('prova_antes_depois.png', 'Out-of-sample comparison before and after conversion'),
-                                  ('harmonizado_anual.png', 'Delivered harmonized annual series')]:
-        image = ROOT / 'reports' / filename
-        if image.exists():
-            st.image(str(image), caption=description, alt=description, width='stretch')
-    figures = [
-               ('v2_serie_anual.png', 'Exploratory raw counts by sensor; not a harmonized result'),
-               ('v6_mapa_k.png', 'Exploratory spatial variation in sensor count ratios'),
-               ('b4_curva_deteccao.png', 'Exploratory detection analysis')]
-    for filename, description in figures:
-        image = ROOT / 'reports' / filename
-        if image.exists():
-            with st.expander(description):
-                st.image(str(image), caption=description, alt=description, width='stretch')
-
 
 
 @st.cache_data
@@ -738,17 +476,13 @@ def show_how_it_works(first_year: int, last_year: int) -> None:
         '- **See where it is burning** on the Map tab, day by day.\n'
         '- **Draw a box** on the map around any place you care about.\n'
         '- **Find its fire season**: which months burn most, and when to get ready.\n'
-        '- **Compare years**: is this year worse or better than normal?\n\n'
+        '- **Compare years**: is this year worse or better than normal?\n'
+        '- **Search hot spots** near any place by its latitude and longitude.\n\n'
         '#### 7. Good to know\n'
         '- A hot spot shows **where** there is heat, not **how big** the fire is or how much land burned.\n'
         '- Clouds and smoke can hide fires from the satellite.\n'
         '- The most recent month may still be missing some days.')
-    st.caption('Data: NASA FIRMS (Fire Information for Resource Management System). '
-               'Technical details are in For experts → Methodology.')
-
-
-SOURCE_COLORS = {'snpp': '#F28E2B', 'noaa20': '#B07AA1', 'modis_convertido': '#9AA5B1'}
-SOURCE_NAMES = {'snpp': 'VIIRS S-NPP', 'noaa20': 'VIIRS NOAA-20 (fills S-NPP gaps)', 'modis_convertido': 'MODIS converted'}
+    st.caption('Data: NASA FIRMS (Fire Information for Resource Management System).')
 
 
 @st.cache_data
@@ -770,43 +504,6 @@ def timescale_data(scale: str, region_wkt: str | None, day_from: date, day_to: d
                            [str(ROOT / 'data/processed/semanal.parquet'), day_from, day_to]).df()
 
 
-def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
-    if not (ROOT / 'data/processed/semanal.parquet').exists():
-        return
-    st.markdown('#### Day, week or month')
-    scale = st.segmented_control('Time scale', ['Day', 'Week', 'Month'], default='Week', required=True, key='timescale')
-    newest = date.today() - timedelta(days=1)
-    if scale == 'Month':
-        data = series.assign(period=pd.to_datetime(dict(year=series.ano, month=series.mes, day=1)))
-        fig = px.bar(data, x='period', y='focos', color_discrete_sequence=['#F46D43'])
-        note = 'Harmonized monthly series (same numbers as the calendar).'
-    else:
-        span = 90 if scale == 'Day' else 730
-        picked = st.date_input('Period', value=(newest - timedelta(days=span), newest), min_value=date(2001, 1, 1),
-                               max_value=newest, key=f'timescale_{scale}')
-        if not isinstance(picked, (tuple, list)) or len(picked) != 2:
-            st.info('Choose a start and an end date.'); return
-        data = timescale_data(scale, region_wkt, picked[0], picked[1])
-        if data.empty:
-            st.info('No hotspots in this area and period.'); return
-        if scale == 'Day':
-            fig = px.bar(data, x='period', y='hotspots', color='fonte', color_discrete_map=SOURCE_COLORS,
-                         labels={'fonte': 'Satellite used'})
-            fig.for_each_trace(lambda t: t.update(name=SOURCE_NAMES.get(t.name, t.name)))
-            note = ('Each day uses the best satellite available: VIIRS S-NPP; if it has no data that day, VIIRS NOAA-20; '
-                    'before 2012, MODIS converted to the VIIRS scale. Days with no satellite at all are left empty (not zero fire). '
-                    'Daily values are noisier than monthly ones (clouds, few overpasses).')
-        else:
-            data['status'] = np.where(data.incomplete, 'Week with a missing satellite day', 'Complete week')
-            fig = px.bar(data, x='period', y='hotspots', color='status',
-                         color_discrete_map={'Complete week': '#F46D43', 'Week with a missing satellite day': '#9AA5B1'})
-            note = 'Weekly totals (weeks start on Monday). Grey bars had at least one day without satellite data.'
-    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=None, yaxis_title='Hotspots (VIIRS scale)',
-                      legend_title_text=None)
-    st.plotly_chart(fig, key='timescale_chart', width='stretch')
-    st.caption(note)
-
-
 # ---------------------------------------------------------------------------
 # Map tab: one map with the hot spots AND the drawing tool (plan L1/L2)
 # ---------------------------------------------------------------------------
@@ -816,7 +513,7 @@ SATELLITE_WORDS = {'S-NPP': 'VIIRS (newer satellite, since 2012)',
                    'Aqua': 'MODIS Aqua (older satellite, since 2002)'}
 SATELLITE_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}'
 LABEL_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}'
-PERIODS = {'Latest day': 1, 'Latest 7 days': 7, 'Latest 30 days': 30}
+PERIODS = {'Latest day': 1, 'Latest 7 days': 7, 'Latest 30 days': 30, 'Latest 12 months': 365}
 
 
 @st.cache_data
@@ -825,12 +522,47 @@ def newest_point_date(path: str, version: int) -> date:
         return pd.Timestamp(con.execute('SELECT max(data) FROM read_parquet(?)', [path]).fetchone()[0]).date()
 
 
+def heat_square(day_from: date, day_to: date) -> float:
+    """Bigger squares for long periods, so years of data still draw quickly."""
+    span = (day_to - day_from).days
+    return .05 if span <= 92 else (.1 if span <= 3 * 365 else .2)
+
+
 @st.cache_data
-def map_points(files: tuple[tuple[str, int], ...], start: date, end: date) -> pd.DataFrame:
+def map_summary(files: tuple[tuple[str, int], ...], start: date, end: date, size: float) -> tuple[int, pd.DataFrame]:
+    """Any period: the database counts and groups everything for the zoomed-out glow."""
+    paths = [p for p, _ in files]
+    where = 'FROM read_parquet(?) WHERE data BETWEEN ? AND ?'
     with duckdb.connect() as con:
-        return con.execute('SELECT lat, lon, data, hora_utc, satelite FROM read_parquet(?) '
-                           'WHERE data BETWEEN ? AND ? ORDER BY data, hora_utc',
-                           [[p for p, _ in files], start, end]).df()
+        total = con.execute('SELECT count(*) ' + where, [paths, start, end]).fetchone()[0]
+        cells = con.execute(f'SELECT round(lat / {size}) * {size} AS lat, round(lon / {size}) * {size} AS lon, '
+                            f'count(*) AS n {where} GROUP BY 1, 2', [paths, start, end]).df()
+    return int(total), cells
+
+
+def view_box(bounds: dict, step: float = .05) -> tuple[float, float, float, float] | None:
+    """Leaflet bounds -> (south, west, north, east), rounded outward so small pans reuse the cache."""
+    try:
+        sw, ne = bounds['_southWest'], bounds['_northEast']
+        return (math.floor(sw['lat'] / step) * step, math.floor(sw['lng'] / step) * step,
+                math.ceil(ne['lat'] / step) * step, math.ceil(ne['lng'] / step) * step)
+    except (KeyError, TypeError):
+        return None
+
+
+@st.cache_data
+def dots_in_view(files: tuple[tuple[str, int], ...], start: date, end: date,
+                 box: tuple[float, float, float, float]) -> tuple[int, pd.DataFrame]:
+    """How many hot spots are in the part of the map on screen; ALL of them when they fit, none otherwise."""
+    south, west, north, east = box
+    where = 'FROM read_parquet(?) WHERE data BETWEEN ? AND ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?'
+    args = [[p for p, _ in files], start, end, south, north, west, east]
+    with duckdb.connect() as con:
+        count = int(con.execute('SELECT count(*) ' + where, args).fetchone()[0])
+        if count > MAX_MAP_POINTS:
+            return count, pd.DataFrame(columns=['lat', 'lon', 'data', 'hora_utc', 'satelite'])
+        dots = con.execute('SELECT lat, lon, data, hora_utc, satelite ' + where + ' ORDER BY data, hora_utc', args).df()
+    return count, dots
 
 
 def age_class(days: pd.Series, end: date) -> np.ndarray:
@@ -839,7 +571,7 @@ def age_class(days: pd.Series, end: date) -> np.ndarray:
     return np.select([age <= 0, age <= 6], [2, 1], 0)
 
 
-def add_hotspot_locations(view: folium.Map, points: pd.DataFrame, end: date) -> None:
+def add_hotspot_locations(view, points: pd.DataFrame, end: date) -> None:
     """Small dots coloured by age, like the NASA FIRMS map. Popup in plain words and Brasília time."""
     if points.empty:
         return
@@ -866,7 +598,8 @@ def map_legend(day_from: date, day_to: date) -> str:
     span = (day_to - day_from).days
     shown = AGE_CLASSES[::-1][:1 if span == 0 else (2 if span < 7 else 3)]
     dots = ' &nbsp; '.join(f'<span style="color:{color};font-size:1.3em">●</span> {label}' for label, color in shown)
-    return f'<div style="font-size:.95rem">{dots}</div>'
+    return (f'<div style="font-size:.95rem">From far away, glowing areas show where hot spots are. '
+            f'Zoom in to a smaller area to see every one as a dot: {dots}</div>')
 
 
 def chosen_period(newest: date) -> tuple[date, date]:
@@ -874,15 +607,11 @@ def chosen_period(newest: date) -> tuple[date, date]:
                                   required=True, key='map_period')
     if choice != 'Pick dates':
         return newest - timedelta(days=PERIODS[choice] - 1), newest
-    picked = st.date_input('Pick one day or a range (up to 92 days)', value=(newest - timedelta(days=6), newest),
+    picked = st.date_input('Pick one day or any range, from 2001 to today', value=(date(2001, 1, 1), newest),
                            min_value=date(2001, 1, 1), max_value=newest, key='map_dates')
     if not isinstance(picked, (tuple, list)):
         picked = (picked, picked)
-    day_from, day_to = (picked[0], picked[1]) if len(picked) == 2 else (picked[0], picked[0])
-    if (day_to - day_from).days + 1 > 92:
-        st.caption('Up to 92 days at a time: showing the last 92 days of your choice.')
-        day_from = day_to - timedelta(days=91)
-    return day_from, day_to
+    return (picked[0], picked[1]) if len(picked) == 2 else (picked[0], picked[0])
 
 
 @st.fragment
@@ -896,12 +625,11 @@ def area_map() -> None:
     day_from, day_to = chosen_period(newest)
     region = st.session_state['regiao']
     try:
-        points = map_points(point_files(day_from, day_to), day_from, day_to)
+        with st.spinner('Loading hot spots…'):
+            files = point_files(day_from, day_to)
+            total, cells = map_summary(files, day_from, day_to, heat_square(day_from, day_to))
     except (ValueError, duckdb.Error):
-        points = pd.DataFrame(columns=['lat', 'lon', 'data', 'hora_utc', 'satelite'])
-    total = len(points)
-    if total > MAX_MAP_POINTS:
-        points = points.iloc[-MAX_MAP_POINTS:]
+        files, total, cells = (), 0, pd.DataFrame(columns=['lat', 'lon', 'n'])
     view = folium.Map(location=[-14, -52], zoom_start=4, tiles=None, prefer_canvas=True,
                       control_scale=True, zoom_control='topright')
     folium.TileLayer(tiles=SATELLITE_TILES, attr='Imagery &copy; Esri, Vantor, Earthstar Geographics',
@@ -910,7 +638,6 @@ def area_map() -> None:
                      control=False, max_zoom=18, max_native_zoom=16).add_to(view)
     view.default_js = [item for item in view.default_js if item[0] == 'leaflet']
     view.default_css = [item for item in view.default_css if item[0] == 'leaflet_css']
-    add_hotspot_locations(view, points, day_to)
     editable = folium.FeatureGroup(name='Your area').add_to(view)
     if region:
         geometry = shapely.from_wkt(region)
@@ -923,16 +650,33 @@ def area_map() -> None:
         'polyline': False, 'circle': False, 'circlemarker': False, 'marker': False,
         'rectangle': {'shapeOptions': {'color': '#4FC3F7'}},
         'polygon': {'allowIntersection': False, 'shapeOptions': {'color': '#4FC3F7'}}}).add_to(view)
+    add_heat(view, cells, heat_square(day_from, day_to))
     with st.container(horizontal=True, vertical_alignment='center'):
         st.html(map_legend(day_from, day_to))
-        period = day_to.strftime('%d %b %Y') if day_from == day_to else f'{day_from:%d %b} – {day_to:%d %b %Y}'
+        start_format = '%d %b' if day_from.year == day_to.year else '%d %b %Y'
+        period = (day_to.strftime('%d %b %Y') if day_from == day_to
+                  else f'{day_from.strftime(start_format)} – {day_to:%d %b %Y}')
         st.caption(f'**{total:,} hot spots** · {period}')
-    if total > MAX_MAP_POINTS:
-        st.caption(f'Too many dots to draw at once: showing the {MAX_MAP_POINTS:,} most recent. Pick fewer days to see all.')
     if total == 0:
         st.caption('No hot spots in these days. This can also mean no satellite data, not only no fire.')
-    output = st_folium(view, height=560, use_container_width=True, returned_objects=['all_drawings'],
-                       key=f"area_map_{st.session_state['map_revision']}_{day_from}_{day_to}")
+    # Dots: only for the part of the map on screen, and only when zoomed in. Then ALL of them are drawn,
+    # without redrawing the whole map (streamlit-folium updates just this layer).
+    map_key = f"area_map_{st.session_state['map_revision']}_{day_from}_{day_to}"
+    last = st.session_state.get(map_key) or {}
+    dots = folium.FeatureGroup(name='Hot spots')
+    box = view_box(last.get('bounds')) if (last.get('zoom') or 0) >= HEAT_ZOOM else None
+    if total and box and files:
+        in_view, points = dots_in_view(files, day_from, day_to, box)
+        if in_view <= MAX_MAP_POINTS:
+            add_hotspot_locations(dots, points, day_to)
+            st.caption(f'All {in_view:,} hot spots in this part of the map are shown as dots. Click one for details.')
+        else:
+            st.caption(f'{in_view:,} hot spots in this part of the map: too many to draw one by one. '
+                       'Zoom in more (or pick fewer days) to see every dot.')
+    elif total:
+        st.caption('Zoom in on the map to see each hot spot as a dot.')
+    output = st_folium(view, height=560, use_container_width=True, returned_objects=['all_drawings', 'bounds', 'zoom'],
+                       feature_group_to_add=dots, key=map_key)
     valid = True
     if output and output.get('all_drawings') is not None:
         event = json.dumps(output['all_drawings'], sort_keys=True)
@@ -961,8 +705,7 @@ def area_map() -> None:
         elif region is None:
             st.caption('To look at one place: click ■ (box) on the left of the map, drag over the place, then press the button.')
         else:
-            inside = int(shapely.contains_xy(shapely.from_wkt(region), points.lon, points.lat).sum()) if total else 0
-            st.caption(f'{inside:,} of the dots on the map are inside your area.')
+            st.caption('Your area is outlined in blue on the map.')
 
 
 # ---------------------------------------------------------------------------
@@ -1025,6 +768,145 @@ def annual_figure(series: pd.DataFrame):
     return fig
 
 
+# ---------------------------------------------------------------------------
+# Far away: glowing orange/yellow areas. Close up: one dot per hot spot.
+# ---------------------------------------------------------------------------
+HEAT_ZOOM = 7   # from this zoom level on, the hot spots on screen are loaded as dots (all of them, when they fit)
+
+
+class HeatToggle(MacroElement):
+    """Hides the glow while dots are on the map and brings it back when they leave (runs in the browser)."""
+    _template = Template('''
+        {% macro script(this, kwargs) %}
+        (function () {
+            var map = {{ this._parent.get_name() }}, heat = {{ this.heat }}, timer = null;
+            function hasDots() {
+                var found = false;
+                map.eachLayer(function (layer) { if (!found && layer instanceof L.CircleMarker) { found = true; } });
+                return found;
+            }
+            function resize() {   // keep the glow smooth: the squares never show as a grid when zooming in
+                var spacing = {{ this.size }} * 256 * Math.pow(2, map.getZoom()) / 360;
+                var radius = Math.min(Math.max(9, spacing * 1.3), 60);
+                heat.setOptions({radius: radius, blur: radius * 1.2});
+            }
+            function update() {
+                clearTimeout(timer);
+                timer = setTimeout(function () {
+                    if (map.getZoom() >= {{ this.zoom }} && hasDots()) { if (map.hasLayer(heat)) map.removeLayer(heat); }
+                    else if (!map.hasLayer(heat)) { map.addLayer(heat); }
+                }, 60);
+            }
+            map.on('layeradd layerremove zoomend', update);
+            map.on('zoomend', resize);
+            resize();
+            update();
+        })();
+        {% endmacro %}''')
+
+    def __init__(self, heat, zoom: int = HEAT_ZOOM, size: float = .05):
+        super().__init__()
+        self._name = 'HeatToggle'
+        self.heat, self.zoom, self.size = heat.get_name(), zoom, size
+
+
+def heat_cells(cells: pd.DataFrame) -> list[list[float]]:
+    """Hot spots already grouped in small squares (lat, lon, n) -> weights for the zoomed-out glow."""
+    if cells.empty:
+        return []
+    top = max(float(cells.n.quantile(.95)), 1.)
+    return [[round(float(lat), 3), round(float(lon), 3), round(min(float(n) / top, 1.), 3)]
+            for lat, lon, n in cells[['lat', 'lon', 'n']].itertuples(index=False, name=None)]
+
+
+def group_points(points: pd.DataFrame, size: float = .05) -> pd.DataFrame:
+    return (points.assign(lat=(points.lat / size).round() * size, lon=(points.lon / size).round() * size)
+            .groupby(['lat', 'lon']).size().rename('n').reset_index())
+
+
+def add_heat(view: folium.Map, cells: pd.DataFrame, size: float = .05) -> None:
+    heat = HeatMap(heat_cells(cells), name='Hot spot areas', radius=9, blur=11, min_opacity=.3,
+                   gradient={'0.2': '#B22200', '0.45': '#FF6A00', '0.7': '#FFA500', '1': '#FFE14D'})
+    heat.add_to(view)
+    HeatToggle(heat, size=size).add_to(view)
+
+
+# ---------------------------------------------------------------------------
+# Everything about the drawn area, on the Map tab
+# ---------------------------------------------------------------------------
+SOURCE_COLORS = {'snpp': '#F28E2B', 'noaa20': '#B07AA1', 'modis_convertido': '#9AA5B1'}
+SOURCE_NAMES = {'snpp': 'Newer satellite (VIIRS S-NPP)', 'noaa20': 'Backup newer satellite (VIIRS NOAA-20)',
+                'modis_convertido': 'Older satellites, corrected (MODIS)'}
+
+
+def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
+    st.markdown('#### Day, week or month')
+    scale = st.segmented_control('See hot spots per', ['Day', 'Week', 'Month'], default='Week', required=True,
+                                 key='timescale')
+    newest = date.today() - timedelta(days=1)
+    if scale == 'Month' or not (ROOT / 'data/processed/semanal.parquet').exists():
+        data = series.assign(period=pd.to_datetime(dict(year=series.ano, month=series.mes, day=1)))
+        fig = px.bar(data, x='period', y='focos', color_discrete_sequence=['#F46D43'])
+        note = 'Hot spots per month (the same numbers as the calendar).'
+    else:
+        span = 90 if scale == 'Day' else 730
+        picked = st.date_input('Dates', value=(newest - timedelta(days=span), newest), min_value=date(2001, 1, 1),
+                               max_value=newest, key=f'timescale_{scale}')
+        if not isinstance(picked, (tuple, list)) or len(picked) != 2:
+            st.info('Choose a start and an end date.')
+            return
+        data = timescale_data(scale, region_wkt, picked[0], picked[1])
+        if data.empty:
+            st.info('No hot spots in this area and these dates.')
+            return
+        if scale == 'Day':
+            fig = px.bar(data, x='period', y='hotspots', color='fonte', color_discrete_map=SOURCE_COLORS,
+                         labels={'fonte': 'Satellite used'})
+            fig.for_each_trace(lambda t: t.update(name=SOURCE_NAMES.get(t.name, t.name)))
+            note = ('Each day uses the best satellite that looked that day. Days with no satellite at all are left '
+                    'empty (that is not the same as no fire). One day can change a lot because of clouds; '
+                    'weeks and months are steadier.')
+        else:
+            data['status'] = np.where(data.incomplete, 'A satellite day is missing', 'All days seen')
+            fig = px.bar(data, x='period', y='hotspots', color='status',
+                         color_discrete_map={'All days seen': '#F46D43', 'A satellite day is missing': '#9AA5B1'})
+            note = 'Hot spots per week (weeks start on Monday). Grey bars: at least one day had no satellite data.'
+    fig.update_layout(height=320, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=None, yaxis_title='Hot spots',
+                      legend_title_text=None)
+    st.plotly_chart(fig, key='timescale_chart', width='stretch', config={'displaylogo': False})
+    st.caption(note)
+
+
+def seasonality_figure(series: pd.DataFrame):
+    complete = series[~series.incompleto & series.focos.notna()]
+    typical = complete.groupby('mes').focos.median().reindex(range(1, 13))
+    fig = go.Figure(go.Bar(x=MONTHS, y=typical.to_numpy(), marker_color='#F46D43',
+                           hovertemplate='%{x}: about %{y:,.0f} hot spots<extra></extra>'))
+    fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), yaxis_title='Hot spots in a usual month')
+    return fig
+
+
+def show_last_month(series: pd.DataFrame) -> None:
+    summary = latest_comparison(series)
+    if not summary:
+        return
+    year, month = summary['year'], summary['month']
+    st.markdown(f'#### Was {MONTHS[month - 1]} {year} worse than usual?')
+    same = series[(series.mes == month) & series.focos.notna()].sort_values('ano')
+    fig = go.Figure(go.Bar(x=same.ano, y=same.focos,
+                           marker_color=['#D7191C' if y == year else '#4A90C2' for y in same.ano],
+                           hovertemplate='%{x}: %{y:,.0f} hot spots<extra></extra>'))
+    if pd.notna(summary['median']):
+        fig.add_hline(y=float(summary['median']), line_dash='dash', annotation_text='usual')
+    fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), yaxis_title=f'Hot spots in {MONTHS[month - 1]}')
+    st.plotly_chart(fig, key='last_month_chart', width='stretch', config={'displaylogo': False})
+    note = (f'The red bar is {MONTHS[month - 1]} {year}; the dashed line is a usual {MONTHS[month - 1]} '
+            '(the middle value of the earlier years).')
+    if summary['newer_incomplete']:
+        note += ' Newer months (' + ', '.join(summary['newer_incomplete']) + ') are not over or miss satellite days, so they are left out.'
+    st.caption(note)
+
+
 def show_your_area(coverage: pd.DataFrame, first_year: int, last_year: int, is_mock: bool) -> None:
     region = st.session_state['regiao']
     st.markdown('### ' + ('Your area' if region else 'All of Brazil'))
@@ -1048,18 +930,30 @@ def show_your_area(coverage: pd.DataFrame, first_year: int, last_year: int, is_m
             note += ' This is a small area, so read the months as approximate (give or take one month).'
         st.caption(note)
     st.markdown('#### Fire calendar')
-    st.caption('Each row is a year, each column is a month. **Blue = few hot spots, red = many.** '
-               'A star (*) means some satellite days are missing that month.')
-    st.plotly_chart(calendar_figure(series, anomaly=False, show_values=False), key='calendar', width='stretch',
+    compare = st.toggle('Compare each month with a usual year (%)', value=False, key='anomaly_mode',
+                        help='Red = more hot spots than the same month usually has; blue = fewer.')
+    st.caption(('Red = more than usual for that month, blue = less. ' if compare else
+                'Each row is a year, each column is a month. **Blue = few hot spots, red = many.** ')
+               + 'A star (*) means some satellite days are missing that month.')
+    st.plotly_chart(calendar_figure(series, anomaly=compare, show_values=False), key='calendar', width='stretch',
                     config={'displaylogo': False}, alt='Hot spots per month and year in the selected area.')
+    show_timescales(series, region)
+    st.markdown('#### A usual year here')
+    st.plotly_chart(seasonality_figure(series), key='seasonality', width='stretch', config={'displaylogo': False},
+                    alt='Hot spots in a usual month, for each month of the year.')
+    st.caption('How many hot spots each month usually has (middle value of the complete years).')
+    st.markdown('#### Hot spots per year')
     st.plotly_chart(annual_figure(series), key='annual_bars', width='stretch', config={'displaylogo': False},
                     alt='Hot spots per year in the selected area.')
     st.caption('Lighter bars: years with some missing satellite days, or the current year, which is not over yet.')
+    show_last_month(series)
     with st.expander('Why can we compare 2005 with 2024?'):
         st.write('The newer satellite (since 2012) sees about 4 times more hot spots than the older ones, because it '
                  'also sees small fires. We corrected the older years so that every year uses the same ruler. '
                  'Switch between the two views to see the difference. The **How it works** tab explains more.')
         show_harmonization_demo(series, region, first_year, last_year, key='area_demo')
+    if not is_mock:
+        show_monthly_uncertainty(series, region)
     export = export_table(series, coverage, region, 'mock' if is_mock else 'harmonized')
     today = datetime.now(ZoneInfo('America/Fortaleza')).date().isoformat()
     st.download_button('Download these numbers (CSV)', export.to_csv(index=False).encode('utf-8-sig'),
@@ -1068,28 +962,97 @@ def show_your_area(coverage: pd.DataFrame, first_year: int, last_year: int, is_m
 
 
 # ---------------------------------------------------------------------------
-# "For experts": everything technical, out of the way (plan L4)
+# Search tab: hot spots around a latitude/longitude, between two dates
 # ---------------------------------------------------------------------------
-def show_expert_calendar(series: pd.DataFrame, coverage: pd.DataFrame, region: str | None, is_mock: bool) -> None:
-    anomaly = st.toggle('Show anomalies (%)', value=False, key='anomaly_mode',
-                        help='Compare each complete month with the same month in earlier complete years.')
-    show_values = st.toggle('Show values in cells', value=False, key='cell_values')
-    st.plotly_chart(calendar_figure(series, anomaly=anomaly, show_values=show_values), key='expert_calendar',
-                    width='stretch', config={'displaylogo': False},
-                    alt='Monthly activity by year in the selected region, in VIIRS-equivalent hotspots.')
-    st.caption('* Incomplete data · — Outside available coverage. Before 2012: MODIS converted to VIIRS scale. '
-               'UTC months, 0.25° cells selected by their centers.')
-    st.info('Peak month: more reliable for areas of about 2° or larger, or with hundreds of hotspots per year. '
-            'Final-method cell-scale peak-month accuracy is 73.7% (90.4% within ±1 month); '
-            'the 80% exact-month target (A2) was not met.')
-    show_comparison(series, 'MOCK · ' if is_mock else '')
-    if not is_mock:
-        show_monthly_uncertainty(series, region)
-    export = export_table(series, coverage, region, 'mock' if is_mock else 'harmonized')
-    with st.expander('Monthly values and coverage notes'):
-        st.dataframe(export.drop(columns='region_wkt'), hide_index=True, alt='Monthly values available in the CSV download.')
-        st.caption('Within dataset coverage, missing cell-month rows are treated as zero under the data contract. '
-                   'CSV anomalies use the median of the same month in earlier complete years.')
+def radius_polygon(lat: float, lon: float, radius_km: float) -> Polygon:
+    """Spherical circle accounts for longitude scale at different latitudes."""
+    phi, lam = math.radians(lat), math.radians(lon)
+    delta = radius_km / 6371.0088
+    points = []
+    for angle in range(0, 361, 5):
+        bearing = math.radians(angle)
+        p = math.asin(math.sin(phi) * math.cos(delta)
+                      + math.cos(phi) * math.sin(delta) * math.cos(bearing))
+        l = lam + math.atan2(math.sin(bearing) * math.sin(delta) * math.cos(phi),
+                            math.cos(delta) - math.sin(phi) * math.sin(p))
+        points.append((math.degrees(l), math.degrees(p)))
+    return Polygon(points)
+
+
+def search_table(points: pd.DataFrame) -> pd.DataFrame:
+    hours = points.hora_utc.astype(int)
+    when = (pd.to_datetime(points.data) + pd.to_timedelta(hours // 100, unit='h')
+            + pd.to_timedelta(hours % 100, unit='m') - pd.Timedelta(hours=3))
+    return pd.DataFrame({'When (Brasília time)': when,          # kept as a date-time: fast even for millions of rows
+                         'Seen by': points.satelite.map(SATELLITE_WORDS).fillna(points.satelite),
+                         'Latitude': points.lat.round(4), 'Longitude': points.lon.round(4),
+                         'Heat strength (MW)': points.frp.round(1)})
+
+
+def show_search(coverage: pd.DataFrame) -> None:
+    st.subheader('Find hot spots near a place')
+    st.caption('Type the latitude and longitude of a place (in Google Maps, right-click the place to copy them), '
+               'how far around it to look, and the dates (any dates from 2001 to today).')
+    files = sorted((ROOT / 'data/processed/focos').glob('focos_*.parquet'))
+    if not files:
+        st.info('The hot spot files are not available.')
+        return
+    newest = newest_point_date(str(files[-1]), files[-1].stat().st_mtime_ns)
+    with st.form('search_form'):
+        with st.container(horizontal=True):
+            lat = st.number_input('Latitude', -34., 6., -15.79, .01, format='%.4f', key='search_lat')
+            lon = st.number_input('Longitude', -74., -34., -47.88, .01, format='%.4f', key='search_lon')
+            radius = st.number_input('Distance around it (km)', 1., 300., 50., 5., key='search_radius')
+        dates = st.date_input('Dates', (newest - timedelta(days=6), newest), min_value=date(2001, 1, 1),
+                              max_value=newest, key='search_dates')
+        submitted = st.form_submit_button('Search', type='primary', icon=':material/search:', key='search_submit')
+    if submitted:
+        if not isinstance(dates, (tuple, list)) or len(dates) != 2:
+            st.error('Choose a start and an end date.')
+            st.session_state.pop('search_query', None)
+        else:
+            st.session_state['search_query'] = (dates[0], dates[1], lat, lon, radius)
+    query = st.session_state.get('search_query')
+    if not query:
+        return
+    start, end, lat, lon, radius = query
+    area = radius_polygon(lat, lon, radius)
+    try:
+        with st.spinner('Searching…'):
+            files = point_files(start, end)
+            points, _ = search_hotspots(files, start, end, 'All available sensors', area.wkt)
+    except (ValueError, duckdb.Error) as error:
+        st.warning(str(error))
+        return
+    st.metric(f'Hot spots within {radius:g} km', f'{len(points):,}')
+    if len(points) > MAX_MAP_POINTS:
+        st.caption(f'The table and the CSV have all {len(points):,} hot spots. That is too many to draw one by one, '
+                   'so the map shows them as a glow. Pick a smaller distance or fewer dates to see every dot.')
+    if interval_coverage(start, end, coverage) != 'No monthly completeness flag':
+        st.caption('Some of these days may be missing satellite data, so the real number can be higher.')
+    if points.empty:
+        st.info('No hot spots found here on these dates.')
+        return
+    view = folium.Map(tiles=None, prefer_canvas=True, control_scale=True)
+    folium.TileLayer(tiles=SATELLITE_TILES, attr='Imagery &copy; Esri, Vantor, Earthstar Geographics',
+                     max_zoom=18, max_native_zoom=16).add_to(view)
+    folium.TileLayer(tiles=LABEL_TILES, attr='Labels &copy; Esri', overlay=True, control=False,
+                     max_zoom=18, max_native_zoom=16).add_to(view)
+    folium.Polygon([(y, x) for x, y in area.exterior.coords], color='#4FC3F7', weight=2, fill_opacity=.05).add_to(view)
+    if len(points) <= MAX_MAP_POINTS:
+        add_hotspot_locations(view, points, end)
+    else:
+        HeatMap(heat_cells(group_points(points)), radius=9, blur=11, min_opacity=.3,
+                gradient={'0.2': '#B22200', '0.45': '#FF6A00', '0.7': '#FFA500', '1': '#FFE14D'}).add_to(view)
+    west, south, east, north = area.bounds
+    view.fit_bounds([[south, west], [north, east]])
+    st_folium(view, height=420, use_container_width=True, returned_objects=[], key=f'search_map_{query}')
+    st.dataframe(search_table(points), hide_index=True, alt='Hot spots found near the chosen place.',
+                 column_config={'When (Brasília time)': st.column_config.DatetimeColumn(format='DD MMM YYYY, HH:mm')})
+    # The CSV is only built when the button is clicked: millions of rows would slow every search otherwise.
+    st.download_button('Download these hot spots (CSV)', lambda: point_export(points).to_csv(index=False).encode('utf-8-sig'),
+                       f'ember_hotspots_{start}_{end}.csv', 'text/csv', key='search_csv', on_click='ignore',
+                       icon=':material/download:')
 
 
 def show_about(coverage: pd.DataFrame) -> None:
@@ -1098,31 +1061,6 @@ def show_about(coverage: pd.DataFrame) -> None:
                 f'{MONTHS[int(last.mes) - 1]} {int(last.ano)}; it is not a real-time emergency alert system. '
                 '[NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · '
                 '[Project repository](https://github.com/vagnermelo20/NasaAppChallenge)')
-
-
-def show_experts(coverage: pd.DataFrame, is_mock: bool, first_year: int, last_year: int) -> None:
-    region = st.session_state['regiao']
-    st.caption('Extra tools for researchers and fire managers. They use the area chosen on the Map tab '
-               f"({st.session_state['region_label']}).")
-    search, timescale, details, trends, method = st.tabs(
-        ['Search hot spots', 'Day & week', 'Calendar details', 'Trends', 'Methodology'],
-        default='Search hot spots', key='expert_tabs', on_change='rerun')
-    with search:
-        if search.open:
-            show_hotspot_search(coverage)
-    with timescale:
-        if timescale.open:
-            show_timescales(serie_regiao(region, first_year, last_year), region)
-    with details:
-        if details.open:
-            show_expert_calendar(serie_regiao(region, first_year, last_year), coverage, region, is_mock)
-    with trends:
-        if trends.open:
-            show_trends(serie_regiao(region, first_year, last_year), 'MOCK · ' if is_mock else '')
-    with method:
-        if method.open:
-            show_methodology(is_mock, coverage)
-            show_about(coverage)
 
 
 def main() -> None:
@@ -1149,8 +1087,8 @@ def main() -> None:
                f'From {first_year} to today, all years on the same scale.')
     if is_mock:
         st.warning('Development data (mock), not the real harmonized series.')
-    map_tab, how_tab, experts_tab = st.tabs(['Map', 'How it works', 'For experts'], default='Map',
-                                            key='main_tabs', on_change='rerun')
+    map_tab, how_tab, search_tab = st.tabs(['Map', 'How it works', 'Search hot spots'], default='Map',
+                                           key='main_tabs', on_change='rerun')
     with map_tab:
         if map_tab.open:
             area_map()
@@ -1159,9 +1097,9 @@ def main() -> None:
         if how_tab.open:
             show_how_it_works(first_year, last_year)
             show_about(coverage)
-    with experts_tab:
-        if experts_tab.open:
-            show_experts(coverage, is_mock, first_year, last_year)
+    with search_tab:
+        if search_tab.open:
+            show_search(coverage)
     st.caption('A hot spot shows where there is heat, not how big a fire is or how much land burned.')
 
 

@@ -6,7 +6,7 @@ Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vag
 ## Como retomar numa conversa nova (comece por aqui)
 1. Leia este arquivo inteiro; depois `specs/tasks.md` (o que está feito/aberto) e `AGENTS.md`.
 2. `git pull` na `main`. Rodar o app: `.venv/Scripts/python.exe -m streamlit run app/app.py` (http://localhost:8501) ou `.claude/launch.json` ("ember-app").
-3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (22 testes) e `.venv/Scripts/python -m app.check_release`.
+3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (24 testes) e `.venv/Scripts/python -m app.check_release`.
 4. O usuário é a **Pessoa A** (dados/ciência); a Pessoa B fez o front-end. Hoje trabalhamos os dois no mesmo repositório, só na `main`.
 
 ## Regras (do usuário)
@@ -33,13 +33,13 @@ Resultado (deixando o ano de fora): Brasil erro anual 1,6%; região 2° × mês 
 Testado e rejeitado: k dia/noite, vizinhança 3×3, climatologia como prior, covariáveis do MODIS por região×mês (P90 FRP etc.).
 
 ## App (app/app.py, Streamlit) — versão para leigos (15/11/2026)
-3 abas: **Map** (mapa único: focos FIRMS sobre satélite, cor pela idade, últimos 1/7/30 dias ou datas, popup em hora de Brasília; desenhar a área no mesmo mapa → "Show fire history for this area" → frases simples, calendário azul→vermelho em escala log, barras por ano, demo sem/com harmonização, CSV) · **How it works** (7 passos simples) · **For experts** (busca de focos, dia/semana, calendário com anomalias e faixa de incerteza, tendências, metodologia). Sem barra lateral. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (22 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
+3 abas: **Map** (mapa único: de longe manchas de calor laranja/amarelas, de perto (zoom ≥ 7) **todas** as bolinhas da parte visível do mapa (carregadas sob demanda, sem teto; se passar de 50 mil na tela, pede mais zoom), coloridas pela idade; últimos 1/7/30 dias, 12 meses ou qualquer intervalo desde 2001 (sem limite de dias); popup em hora de Brasília; desenhar a área no mesmo mapa → "Show fire history for this area" → frases simples, calendário (com opção "compare with a usual year"), dia/semana/mês, um ano comum (sazonalidade), barras por ano, "o último mês foi pior que o normal?", demo sem/com harmonização, faixa de incerteza antes de 2012, CSV — tudo da área desenhada) · **How it works** (7 passos simples) · **Search hot spots** (latitude + longitude + raio em km + qualquer intervalo de datas → contagem exata, tabela/CSV com **todos** os focos, sem teto; mapa com todas as bolinhas quando cabem, senão mancha). Sem barra lateral. Metodologia, For experts, Trends e Day & week separados foram apagados. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (24 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
 
 ## Pendências (atualizado 15/11/2026)
 - **Entrega:** nomes da equipe (README e submissão), vídeo de 30 s, envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
 - **Série diária:** NOAA-20 de 2026 pela API (03–14/11/2026 vazios; S-NPP sem dados desde 02/11); faixa de incerteza diária (D4); medir concordância diária/semanal (D1).
 - **Harmonização v3:** lei de potência e quantile mapping testados e rejeitados; resta testar o k físico pela distribuição de FRP (expectativa baixa).
-- **App para leigos:** falta o L8 (mostrar a 2–3 leigos e corrigir onde travarem) e publicar (commit na main → Streamlit Cloud atualiza sozinho).
+- **App para leigos:** falta o L8 (mostrar a 2–3 leigos e corrigir onde travarem).
 - Opcional: contornos de estados/biomas no mapa; teste automático que pegue o calendário vazio (eixo de categorias).
 
 ## Plano: harmonização v3 (proposta, ainda não implementada)
@@ -82,6 +82,11 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (noite, 6): visual **branco estilo Wikipedia** (`.streamlit/config.toml`: fundo branco, texto #202122, linhas cinza #A2A9B1, títulos com serifa, azul #3366CC só em botões/links, cantos quase retos). "Pick dates" do mapa agora começa em 01/01/2001 (vai até o dado mais novo).
+- 15/11/2026 (noite, 5): bolinhas **só de perto e todas**: ao dar zoom (≥ 7) o app busca no DuckDB os focos da parte visível do mapa e desenha todos (streamlit-folium `feature_group_to_add`, sem recarregar o mapa); acima de 50 mil na tela mostra a mancha e pede mais zoom. A mancha some quando as bolinhas aparecem e o raio dela cresce com o zoom (sem quadradinhos). Acabou o "50 mil mais recentes".
+- 15/11/2026 (noite, 4): **busca sem teto** (pedido do usuário: "infinito"): tabela e CSV com todos os focos (ex.: 300 km em volta de -5, -45, 2001–2026 = 2.102.367 focos, página em ~3 s); o CSV só é montado ao clicar no botão; a hora fica como data-hora na tabela (0,5 s para 2 mi linhas). Só o desenho de bolinhas no navegador continua nos 50 mil mais recentes (as manchas de calor mostram todos).
+- 15/11/2026 (noite, 3): **sem limite de 92 dias** no mapa e na busca (pedido do usuário). O mapa conta e agrupa no DuckDB (manchas com quadrados de 0,05°/0,1°/0,2° conforme o período) e só manda as 50 mil bolinhas mais recentes; 2001–2026 inteiro (22,5 mi focos) em ~1 s. A busca conta todos no círculo. Nova opção "Latest 12 months".
+- 15/11/2026 (noite, 2): pedido do usuário: tudo da área desenhada fica na aba Map (calendário com anomalias, dia/semana/mês, sazonalidade, último mês × anos anteriores, incerteza); apagadas as abas For experts, Methodology, Trends e Day & week; nova aba Search hot spots por latitude/longitude + raio (não o Brasil todo); mapa com manchas de calor de longe e bolinhas de perto (troca no navegador, sem recarregar). 24 testes ok.
 - 15/11/2026 (noite): usuário pediu app entendível por leigos. Diagnóstico: o mapa do Calendar não mostra os focos (mapa de ruas vazio; `show_area_hotspots` existe mas não é chamada), 6 abas, controles e jargão demais. Plano L1–L9 em `specs/plano_leigos.md` (mapa único com focos + desenho, cor pela idade como no FIRMS, 3 abas: Map / How it works / For experts). Aguardando aprovação.
 - 15/11/2026 (noite): **plano para leigos executado** (L1–L7, L9): 3 abas Map / How it works / For experts; mapa único com focos coloridos pela idade e desenho da área; resumo em frases; sem barra lateral; apagados o Fire map antigo, grade de análise, catálogo, Lat-Lon + raio e filtro de anos (app.py 1.540 → ~1.100 linhas). README atualizado. Falta L8 (teste com leigos) e publicar.
 - 15/11/2026 (noite): feita a aba **How it works** (L10), explicação para leigos em 7 passos, com o gráfico sem/com harmonização do Brasil. Agora são 7 abas; teste de contagem de abas ajustado (26 testes ok).

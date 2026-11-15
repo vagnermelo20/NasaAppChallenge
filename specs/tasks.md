@@ -177,6 +177,7 @@ Aspecto final, tela cheia e layout móvel permanecem para conferência visual do
 - [x] **L6/L7** Jargão fora da aba Map (teste automático confere); bloco "Why can we compare 2005 with 2024?"
 - [x] **L9** Testes reescritos (22 passam) e conferência no navegador
 - [x] **L10** Aba How it works
+- [x] **L11** Pedido do usuário: tudo da área na aba Map (calendário/anomalias, dia/semana/mês, sazonalidade, último mês × histórico, incerteza); apagadas For experts, Methodology, Trends e Day & week; aba Search hot spots por lat/lon + raio + datas; manchas de calor de longe e bolinhas de perto
 - [ ] **L8** Teste com 2–3 leigos (3 perguntas do plano)
 
 ---
