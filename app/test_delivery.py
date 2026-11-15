@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
-from shapely.geometry import Point, box, mapping
+from shapely.geometry import Point, Polygon, box, mapping
 from streamlit.testing.v1 import AppTest
 from app.check_release import inspect_release
 
@@ -21,7 +21,7 @@ from app.app import (anomaly_values, cached_series, calendar_figure, complete_mo
                      hotspot_locations, add_hotspot_locations, map_legend, season_text,
                      area_sentences, search_hotspots, point_export, interval_coverage, heat_cells,
                      radius_polygon, search_table, add_heat, heat_top, view_box, dots_in_view, with_heat_rank,
-                     map_summary, heat_square)
+                     map_summary, heat_square, area_point_totals, SEARCH_PAGE_SIZE)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -74,8 +74,10 @@ class CalendarDataTests(unittest.TestCase):
             export = point_export(points)
             self.assertEqual(export.time_utc.tolist(), ['13:29', '00:05'])
             decoded = pd.read_csv(io.StringIO(export.to_csv(index=False)))
-            self.assertEqual(decoded.hotspots_common_scale.sum(), 3.25)       # unified: no satellite column in the CSV
-            self.assertNotIn('satellite', decoded.columns)
+            self.assertEqual(decoded.hotspots_common_scale.sum(), 3.25)
+            self.assertEqual(decoded.satellite.tolist(), ['Terra', 'S-NPP'])
+            self.assertEqual(decoded.frp_mw.tolist(), [3., 2.])
+            self.assertEqual(decoded.daynight.tolist(), ['D', 'N'])
             clipped, _ = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
                                          'VIIRS S-NPP', box(-56.5, -18.5, -56, -18).wkt)
             self.assertEqual(len(clipped), 2)
@@ -96,9 +98,71 @@ class CalendarDataTests(unittest.TestCase):
             self.assertEqual(common, 1. + 2.25 + 1. + 2.25)              # common scale: sum of harmonized weights
             self.assertEqual(cells.n.sum(), common)
             screen = view_box({'_southWest': {'lat': -18.5, 'lng': -56.5}, '_northEast': {'lat': -18.0, 'lng': -56.0}})
+            assert screen is not None
             count, dots = dots_in_view(tuple(files), date(2024, 1, 1), date(2025, 12, 31), screen)
             self.assertEqual((count, len(dots)), (2, 2))                          # all dots on screen, no cap
             self.assertIsNone(view_box(None))
+
+    def test_pagination_filters_polygon_holes_before_limit_and_preserves_full_totals(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'points.parquet'
+            # Points 0 and 2 are inside the bounding box but in the polygon hole.
+            data = pd.DataFrame({'lat': [2., 1., 2., 3.], 'lon': [2., 1., 2., 3.],
+                                 'data': pd.to_datetime(['2025-01-01'] * 4),
+                                 'hora_utc': [0, 100, 200, 300], 'satelite': ['S-NPP'] * 4,
+                                 'frp': [50., 2., 50., 4.], 'daynight': ['D'] * 4,
+                                 'peso_harmonizado': [100., 1.25, 100., 2.75]})
+            data.to_parquet(path)
+            files = ((str(path), path.stat().st_mtime_ns),)
+            region = Polygon([(0, 0), (4, 0), (4, 4), (0, 4)],
+                             holes=[[(1.5, 1.5), (2.5, 1.5), (2.5, 2.5), (1.5, 2.5)]]).wkt
+            first, more = search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                          'All available sensors', region, limit=1)
+            last, last_more = search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                              'All available sensors', region, limit=1, offset=1)
+            self.assertTrue(more)
+            self.assertFalse(last_more)
+            self.assertEqual(first.hora_utc.tolist(), [100])
+            self.assertEqual(last.hora_utc.tolist(), [300])
+            count, total = area_point_totals(files, date(2025, 1, 1), date(2025, 1, 1), region)
+            self.assertEqual(count, 2)
+            self.assertEqual(total, 4.)
+            self.assertNotEqual(first.peso_harmonizado.sum(), total)
+            self.assertEqual(area_point_totals(files, date(2025, 1, 1), date(2025, 1, 1),
+                                              box(10, 10, 11, 11).wkt), (0, 0.))
+
+    def test_default_page_limit_keeps_last_page_without_duplicates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'points.parquet'
+            size = SEARCH_PAGE_SIZE + 3
+            pd.DataFrame({'lat': np.linspace(-20, -19, size), 'lon': [-50.] * size,
+                          'data': pd.to_datetime(['2025-01-01'] * size),
+                          'hora_utc': [1200] * size, 'satelite': ['S-NPP'] * size,
+                          'frp': np.arange(size, dtype=float), 'daynight': ['D'] * size,
+                          'peso_harmonizado': [1.] * size}).to_parquet(path)
+            files = ((str(path), path.stat().st_mtime_ns),)
+            first, more = search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                          'All available sensors', None)
+            last, last_more = search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                              'All available sensors', None, offset=SEARCH_PAGE_SIZE)
+            self.assertEqual(len(first), SEARCH_PAGE_SIZE)
+            self.assertTrue(more)
+            self.assertEqual(len(last), 3)
+            self.assertFalse(last_more)
+            joined = pd.concat([first, last], ignore_index=True)
+            self.assertEqual(joined.frp.tolist(), list(np.arange(size, dtype=float)))
+            self.assertEqual(joined.frp.nunique(), size)
+            self.assertEqual(area_point_totals(files, date(2025, 1, 1), date(2025, 1, 1), None),
+                             (size, float(size)))
+            oversized, _ = search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                           'All available sensors', None, limit=size)
+            self.assertEqual(len(oversized), SEARCH_PAGE_SIZE)
+            with self.assertRaises(ValueError):
+                search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                'All available sensors', None, limit=0)
+            with self.assertRaises(ValueError):
+                search_hotspots(files, date(2025, 1, 1), date(2025, 1, 1),
+                                'All available sensors', None, offset=-1)
 
     def test_exact_interval_coverage_does_not_treat_missing_months_as_zero(self):
         coverage = pd.DataFrame({'ano': [2026, 2026], 'mes': [10, 11], 'incompleto': [False, True]})
@@ -330,7 +394,8 @@ class SimpleMapTests(unittest.TestCase):
         table = search_table(pd.DataFrame({'lat': [-30.12345], 'lon': [-55.], 'data': pd.to_datetime(['2026-11-02']),
                                            'hora_utc': [130], 'satelite': ['Aqua'], 'frp': [12.34]}))
         self.assertEqual(table.iloc[0]['When (Brasília time)'], pd.Timestamp('2026-11-01 22:30'))
-        self.assertEqual(list(table.columns), ['When (Brasília time)', 'Latitude', 'Longitude'])   # no satellite
+        self.assertTrue({'When (Brasília time)', 'Latitude', 'Longitude'}.issubset(table.columns))
+        self.assertIn(12.34, table.iloc[0].tolist())
 
 def app_test():
     return AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=60)
@@ -389,8 +454,20 @@ class ApplicationTests(unittest.TestCase):
             app.run()
             self.assertFalse(app.exception)
             self.assertTrue(any('simple words' in s.value for s in app.subheader))
+            explanation = ' '.join(m.value for m in app.markdown)
+            self.assertIn('monthly activity', explanation)
+            self.assertIn('Daily values before 2012 are approximate', explanation)
+            self.assertIn('73.7%', explanation)
+            self.assertIn('90.4%', explanation)
+            self.assertIn('not met', explanation)
+            self.assertNotIn('now any two years can be compared directly', explanation)
+            self.assertNotIn('to today', explanation)
             app.session_state['main_tabs'] = 'Map'
             app.run()
+            header = ' '.join(c.value for c in app.caption)
+            self.assertIn('Archive:', header)
+            self.assertIn('Latest recorded detection in this archive:', header)
+            self.assertIn('not a live emergency feed', header)
             self.assertTrue(any('Draw an area or type a place' in c.value for c in app.caption))
             app.number_input(key='place_lat').set_value(-5.)
             app.number_input(key='place_lon').set_value(-45.)
@@ -399,7 +476,8 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertIsNotNone(app.session_state['regiao'])
             self.assertIn('50 km around -5.0000, -45.0000', app.session_state['region_label'])
-            self.assertTrue(any('hot spots** inside your area' in c.value for c in app.caption))
+            self.assertTrue(any('recorded detections' in c.value and 'Totals cover the whole selection' in c.value
+                                for c in app.caption))
             self.assertEqual(len(app.dataframe), 1)
 
     def test_area_page_has_calendar_timescales_and_usual_year(self):

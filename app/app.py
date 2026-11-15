@@ -10,6 +10,7 @@ import duckdb
 import folium
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 import plotly.express as px
 import plotly.graph_objects as go
 import shapely
@@ -25,6 +26,7 @@ REAL = ROOT / 'data/processed/harmonized.parquet'
 MOCK = ROOT / 'data/processed/harmonized_mock.parquet'
 MONTHS = list(calendar.month_abbr)[1:]
 MAX_MAP_POINTS = 50_000   # above this the browser map becomes slow and unreadable
+SEARCH_PAGE_SIZE = 5_000
 
 
 @st.cache_data
@@ -44,11 +46,9 @@ def hotspot_locations(path: str, version: int, year: int, month: int,
     return points.reset_index(drop=True)
 
 
-@st.cache_data
-def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
-                    sensor: str, region_wkt: str | None, limit: int | None = None,
-                    newest_first: bool = False) -> tuple[pd.DataFrame, bool]:
-    """All hot spots in the dates and area (no cap unless a limit is given)."""
+def point_selection(con, files: tuple[tuple[str, int], ...], start: date, end: date,
+                    sensor: str, region_wkt: str | None) -> tuple[str, list]:
+    """Apply exact spatial selection inside DuckDB, before aggregation or pagination."""
     if end < start:
         raise ValueError('The end date must be on or after the start date.')
     if not files:
@@ -57,23 +57,47 @@ def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
                   'MODIS Terra + Aqua': " AND satelite IN ('Terra','Aqua')"}
     if sensor not in predicates:
         raise ValueError('Unknown satellite sensor.')
-    columns = ['lat', 'lon', 'data', 'hora_utc', 'satelite', 'frp', 'daynight', 'peso_harmonizado']
-    sql = 'SELECT ' + ','.join(columns) + ' FROM read_parquet(?) WHERE data BETWEEN ? AND ?' + predicates[sensor]
+    sql = 'FROM read_parquet(?) WHERE data BETWEEN ? AND ?' + predicates[sensor]
     args: list = [[p for p, _ in files], start, end]
     geometry = shapely.from_wkt(region_wkt) if region_wkt else None
     if geometry is not None:
         west, south, east, north = geometry.bounds
         sql += ' AND lon BETWEEN ? AND ? AND lat BETWEEN ? AND ?'
         args.extend([west, east, south, north])
+        def inside_area(latitudes, longitudes):
+            return pa.array(shapely.contains_xy(geometry,
+                            longitudes.to_numpy(zero_copy_only=False),
+                            latitudes.to_numpy(zero_copy_only=False)))
+        con.create_function('inside_area', inside_area, ['DOUBLE', 'DOUBLE'], 'BOOLEAN', type='arrow')
+        sql += ' AND inside_area(CAST(lat AS DOUBLE), CAST(lon AS DOUBLE))'
+    return sql, args
+
+
+@st.cache_data(max_entries=16)
+def search_hotspots(files: tuple[tuple[str, int], ...], start: date, end: date,
+                    sensor: str, region_wkt: str | None, limit: int | None = None,
+                    newest_first: bool = False, offset: int = 0) -> tuple[pd.DataFrame, bool]:
+    """One bounded page of exact matches; the boolean indicates another page exists."""
+    page_size = min(SEARCH_PAGE_SIZE, limit if limit is not None else SEARCH_PAGE_SIZE)
+    if page_size < 1 or offset < 0:
+        raise ValueError('Page size must be positive and offset must not be negative.')
+    columns = 'lat,lon,data,hora_utc,satelite,frp,daynight,peso_harmonizado'
     order = ' DESC' if newest_first else ''
     with duckdb.connect() as con:
-        points = con.execute(sql + f' ORDER BY data{order}, hora_utc{order}, satelite, lat, lon', args).df()
-    if geometry is not None and not points.empty:
-        points = points[shapely.contains_xy(geometry, points.lon.to_numpy(), points.lat.to_numpy())]
-    points = points.reset_index(drop=True)
-    if limit is not None and len(points) > limit:
-        return points.iloc[:limit].copy(), True
-    return points, False
+        where, args = point_selection(con, files, start, end, sensor, region_wkt)
+        points = con.execute('SELECT ' + columns + ' ' + where
+                             + f' ORDER BY data{order}, hora_utc{order}, satelite, lat, lon, frp, daynight, peso_harmonizado'
+                             + ' LIMIT ? OFFSET ?', [*args, page_size+1, offset]).df()
+    return points.iloc[:page_size].copy(), len(points) > page_size
+
+
+@st.cache_data(max_entries=16)
+def area_point_totals(files: tuple[tuple[str, int], ...], start: date, end: date,
+                      region_wkt: str | None) -> tuple[int, float]:
+    with duckdb.connect() as con:
+        where, args = point_selection(con, files, start, end, 'All available sensors', region_wkt)
+        count, total = con.execute('SELECT count(*), coalesce(sum(peso_harmonizado),0) ' + where, args).fetchone() or (0, 0.)
+    return int(count), float(total)
 
 
 def point_export(points: pd.DataFrame) -> pd.DataFrame:
@@ -81,7 +105,9 @@ def point_export(points: pd.DataFrame) -> pd.DataFrame:
     result = pd.DataFrame({'date_utc': pd.to_datetime(points.data).dt.strftime('%Y-%m-%d'),
                            'time_utc': points.hora_utc.map(lambda value: f'{int(value)//100:02d}:{int(value)%100:02d}'),
                            'latitude': points.lat, 'longitude': points.lon,
-                           'hotspots_common_scale': points.peso_harmonizado})
+                           'hotspots_common_scale': points.peso_harmonizado,
+                           'satellite': points.satelite, 'frp_mw': points.frp,
+                           'daynight': points.daynight})
     if 'frp_pct' in points.columns:
         result.insert(4, 'heat_strength_percentile', points.frp_pct)
     return result
@@ -317,30 +343,49 @@ def show_how_it_works(first_year: int, last_year: int) -> None:
         '#### 1. Satellites look for heat\n'
         'NASA satellites pass over Brazil several times a day. They measure the heat coming from the ground. '
         'When a small piece of land is much hotter than the land around it, the satellite marks it as a '
-        '**hot spot**. Almost always, a hot spot is a fire burning at that moment.\n\n'
-        f'#### 2. One single record, from {first_year} to today\n'
+        '**hot spot**. It can indicate active burning; a detection is not a confirmed separate fire.\n\n'
+        f'#### 2. One record, from {first_year} to the delivered {last_year} archive\n'
         'Over the years NASA has watched fires with different instruments, and each one counted them in its own way. '
-        'EMBER joins all of them into **one single, unified record**: every hot spot, every day and every month since '
-        f'{first_year} is measured with the same ruler. You never need to think about which instrument was flying.\n\n'
+        'EMBER joins their counts into **one unified historical record**. The conversion was calibrated for '
+        'monthly activity in regions; it does not make individual detections or exact days equally reliable.\n\n'
         '#### 3. How the records were joined\n'
-        'For ten years (2012–2021) the instruments watched the same fires at the same time. '
+        'For ten years (2012–2021) the instruments observed overlapping regions and periods. '
         'We used those years to learn, for each region of Brazil and each month, how their counts relate, '
         'and put every year on one common scale. '
-        'It is like converting old prices into today\'s money: now any two years can be compared directly.\n\n'
+        'It is like converting old prices to a common currency: comparison becomes more meaningful, '
+        'but differences in observation time, clouds and detection capability remain. '
+        'Daily values before 2012 are approximate allocations of a monthly conversion; '
+        'larger regions and monthly or annual totals are more reliable than isolated days and small areas.\n\n'
         '#### 4. How good is it?\n'
         'We tested it by hiding one year at a time and checking if we could "guess" it from the others:\n'
-        '- For all of Brazil, the yearly total is off by only about **2%**.\n'
-        '- For one region in one year, **9 out of 10** guesses are within 20%.\n'
-        '- For one region in one single month it is harder: **2 out of 3** are within 20%.\n\n'
+        '- For Brazil, the **mean absolute annual error was about 2%** in the evaluated years.\n'
+        '- For **2° regions with at least 300 observed hot spots per year**, annual agreement was '
+        'within 20% in **92%** of evaluated cases.\n'
+        '- For **2° regions with at least 100 observed hot spots per month**, monthly agreement was '
+        'within 20% in **66%** of evaluated cases. These are agreement measures for those subsets, not general accuracy.\n\n'
         '#### 5. What you can do with EMBER\n'
-        '- **See where it is burning** on the Map tab, any day since 2001.\n'
+        '- **Explore recorded heat detections** on the Map tab, on available dates since 2001.\n'
         '- **Draw a box** on the map, or **type a place** (latitude and longitude), and list or download its hot spots.\n'
         '- **Find its fire season**: which months burn most, and when to get ready.\n'
         '- **Compare years**: is this year worse or better than normal?\n\n'
         '#### 6. Good to know\n'
         '- A hot spot shows **where** there is heat, not **how big** the fire is or how much land burned.\n'
         '- Clouds and smoke can hide fires from the satellites.\n'
-        '- The most recent month may still be missing some days.')
+        '- The most recent month may still be missing some days.\n'
+        '- Equal heat percentiles do not mean equal fire energy, size or severity. The percentile is relative '
+        'to the instrument\'s own historical readings.\n'
+        '- The map\'s dots locate real detections; multiplying their weights does not create additional observed locations.')
+    with st.expander('Scientific limits and validation details'):
+        st.markdown('The conversion targets **monthly regional counts**, not physical fire intensity. '
+                    'Before 2012, exact-day weights are approximate and do not have a calibrated daily confidence interval.\n\n'
+                    '**Final-method cell-scale evaluation (0.25°, leave-one-year-out, 2012–2021):** '
+                    'monthly correlation **0.959**; exact peak-month accuracy **73.7%**, below the **80%** target; '
+                    '**90.4%** within ±1 month. The A2 peak-month criterion was **not met**. '
+                    'For small areas interpret the peak within ±1 month; larger regions and annual totals are more reliable.\n\n'
+                    'The 66% monthly and 92% annual figures above refer to agreement within ±20% '
+                    'at the stated 2° regional scale and observation thresholds. They do not replace the cell-scale target.\n\n'
+                    '[Full methodology](https://github.com/vagnermelo20/NasaAppChallenge/blob/main/docs/metodologia.md) · '
+                    '[Reported metrics](https://github.com/vagnermelo20/NasaAppChallenge/blob/main/reports/metrics.json)')
     st.caption('Data: NASA FIRMS (Fire Information for Resource Management System). '
                'The full method and its validation are in the project repository.')
 
@@ -376,7 +421,13 @@ PERIODS = {'Latest day': 1, 'Latest 7 days': 7, 'Latest 30 days': 30, 'Latest 12
 @st.cache_data
 def newest_point_date(path: str, version: int) -> date:
     with duckdb.connect() as con:
-        return pd.Timestamp(con.execute('SELECT max(data) FROM read_parquet(?)', [path]).fetchone()[0]).date()
+        row = con.execute('SELECT max(data) FROM read_parquet(?)', [path]).fetchone()
+    value = row[0] if row else None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raise ValueError('This point archive contains no valid observation dates.')
 
 
 def heat_square(day_from: date, day_to: date) -> float:
@@ -395,7 +446,7 @@ def map_summary(files: tuple[tuple[str, int], ...], start: date, end: date,
     where = 'FROM read_parquet(?) WHERE data BETWEEN ? AND ?'
     with duckdb.connect() as con:
         common, detections = con.execute('SELECT coalesce(sum(peso_harmonizado), 0), count(*) ' + where,
-                                         [paths, start, end]).fetchone()
+                                         [paths, start, end]).fetchone() or (0., 0)
         cells = con.execute(f'SELECT round(lat / {size}) * {size} AS lat, round(lon / {size}) * {size} AS lon, '
                             f'sum(peso_harmonizado) AS n {where} GROUP BY 1, 2', [paths, start, end]).df()
     return float(common), int(detections), cells
@@ -411,7 +462,9 @@ def heat_top(day_from: date, day_to: date, size: float) -> float:
     return per_day * days * (size / .05)
 
 
-def view_box(bounds: dict, step: float = .05) -> tuple[float, float, float, float] | None:
+def view_box(bounds: dict | None, step: float = .05) -> tuple[float, float, float, float] | None:
+    if not bounds:
+        return None
     """Leaflet bounds -> (south, west, north, east), rounded outward so small pans reuse the cache."""
     try:
         sw, ne = bounds['_southWest'], bounds['_northEast']
@@ -429,7 +482,8 @@ def dots_in_view(files: tuple[tuple[str, int], ...], start: date, end: date,
     where = 'FROM read_parquet(?) WHERE data BETWEEN ? AND ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?'
     args = [[p for p, _ in files], start, end, south, north, west, east]
     with duckdb.connect() as con:
-        count = int(con.execute('SELECT count(*) ' + where, args).fetchone()[0])
+        count_row = con.execute('SELECT count(*) ' + where, args).fetchone()
+        count = int(count_row[0]) if count_row else 0
         if count > MAX_MAP_POINTS:
             return count, pd.DataFrame(columns=['lat', 'lon', 'data', 'hora_utc', 'satelite'])
         dots = con.execute('SELECT lat, lon, data, hora_utc, satelite, frp ' + where + ' ORDER BY data, hora_utc', args).df()
@@ -467,12 +521,12 @@ def add_hotspot_locations(view, points: pd.DataFrame) -> None:
                    on_each_feature=JsCode(POPUP_JS)).add_to(view)
 
 
-@st.cache_data
-def frp_percentiles(paths: tuple[str, ...]) -> dict[str, np.ndarray]:
+@st.cache_data(max_entries=2)
+def frp_percentiles(paths: tuple[str, ...], versions: tuple[int, ...] = ()) -> dict[str, np.ndarray]:
     """For each satellite: the heat strength (FRP) at 0%, 1%, ..., 100% of its hot spots in Brazil."""
     steps = [i / 100 for i in range(101)]
     with duckdb.connect() as con:
-        # A 10% block sample of the ~22 million hot spots gives the same percentiles, much faster.
+        # Approximate reference percentiles from a reproducible 10% block sample.
         rows = con.execute('SELECT satelite, quantile_cont(frp, ?) FROM (SELECT satelite, frp FROM read_parquet(?) '
                            'USING SAMPLE 10% (system, 42)) GROUP BY 1', [steps, list(paths)]).fetchall()
     return {sat: np.array(values, dtype=float) for sat, values in rows}
@@ -484,7 +538,7 @@ def with_heat_rank(points: pd.DataFrame) -> pd.DataFrame:
     files = tuple(str(f) for f in sorted((ROOT / 'data/processed/focos').glob('focos_*.parquet')))
     if points.empty or 'frp' not in points.columns or not files:
         return points
-    table = frp_percentiles(files)
+    table = frp_percentiles(files, tuple(Path(path).stat().st_mtime_ns for path in files))
     ranks = [int(np.searchsorted(table[s], f, side='right') - 1) if s in table and pd.notna(f) else None
              for s, f in zip(points.satelite, points.frp)]
     return points.assign(frp_pct=pd.Series(ranks, index=points.index, dtype='float').clip(0, 99))
@@ -492,7 +546,8 @@ def with_heat_rank(points: pd.DataFrame) -> pd.DataFrame:
 
 def map_legend() -> str:
     return (f'<div style="font-size:.95rem">From far away, glowing areas show where hot spots are. Zoom in to a smaller '
-            f'area to see every one as a dot <span style="color:{DOT_COLOR};font-size:1.3em">●</span> and click it.</div>')
+            f'area to see every one as a dot <span style="color:{DOT_COLOR};font-size:1.3em">●</span> and click it. '
+            'The glow represents grouped activity, not fire size or severity.</div>')
 
 
 def start_end_dates(key: str, start: date, end: date, newest: date) -> tuple[date, date]:
@@ -533,7 +588,7 @@ def place_form() -> None:
 
 
 def area_hotspots_table(files: tuple[tuple[str, int], ...], day_from: date, day_to: date, region: str | None) -> None:
-    """Every hot spot inside the area, for the dates chosen above the map (no cap)."""
+    """Exact totals plus a bounded, exportable page of observations."""
     st.markdown('#### Hot spots in your area on these dates')
     if region is None:
         st.caption('Draw an area or type a place to list its hot spots one by one and download them.')
@@ -541,19 +596,34 @@ def area_hotspots_table(files: tuple[tuple[str, int], ...], day_from: date, day_
     if not files:
         st.caption('No hot spot files for these dates.')
         return
+    total_detections, common_total = area_point_totals(files, day_from, day_to, region)
+    st.caption(f'**{common_total:,.0f} on the common activity scale** · {total_detections:,} recorded detections '
+               f'inside your area from {day_from:%d %b %Y} to {day_to:%d %b %Y}. '
+               'Totals cover the whole selection; the table and detailed CSV are paginated.')
+    if total_detections == 0:
+        st.info('No recorded detections match this area and interval. This does not establish that no fire occurred.')
+        return
+    signature = (files, day_from, day_to, region)
+    if st.session_state.get('area_points_signature') != signature:
+        st.session_state['area_points_signature'] = signature
+        st.session_state['area_points_page'] = 1
+    pages = max(1, math.ceil(total_detections / SEARCH_PAGE_SIZE))
+    page = int(st.number_input('Results page', min_value=1, max_value=pages, step=1, key='area_points_page'))
     with st.spinner('Listing hot spots…'):
-        points, _ = search_hotspots(files, day_from, day_to, 'All available sensors', region)
+        points, _ = search_hotspots(files, day_from, day_to, 'All available sensors', region,
+                                   limit=SEARCH_PAGE_SIZE, offset=(page-1)*SEARCH_PAGE_SIZE)
         points = with_heat_rank(points)
-    st.caption(f'**{points.peso_harmonizado.sum():,.0f} hot spots** inside your area from '
-               f'{day_from:%d %b %Y} to {day_to:%d %b %Y}. Each row below is a place and time where heat was seen. '
-               'Change the dates above the map to list other days.')
+    st.caption(f'Page {page:,} of {pages:,} · {len(points):,} detections on this page (up to {SEARCH_PAGE_SIZE:,}). '
+               'Each row is a recorded place and time. Download other pages separately or narrow the dates/area.')
+    st.caption('Heat percentile is relative to the instrument\'s historical readings, not a common physical '
+               'measure of fire severity. Ranks use a sampled reference distribution. '
+               'The CSV also includes raw radiative power in MW and source instrument.')
     if points.empty:
         return
     st.dataframe(search_table(points), hide_index=True, alt='Hot spots inside the chosen area.', height=300,
                  column_config={'When (Brasília time)': st.column_config.DatetimeColumn(format='DD MMM YYYY, HH:mm')})
-    # The CSV is only built when the button is clicked: millions of rows would slow every rerun otherwise.
-    st.download_button('Download these hot spots (CSV)', lambda: point_export(points).to_csv(index=False).encode('utf-8-sig'),
-                       f'ember_hotspots_{day_from}_{day_to}.csv', 'text/csv', key='area_points_csv', on_click='ignore',
+    st.download_button('Download this page (CSV)', point_export(points).to_csv(index=False).encode('utf-8-sig'),
+                       f'ember_hotspots_{day_from}_{day_to}_page-{page}.csv', 'text/csv', key='area_points_csv', on_click='ignore',
                        icon=':material/download:')
 
 
@@ -565,14 +635,16 @@ def area_map() -> None:
         st.info('The hot spot files are not available.')
         return
     newest = newest_point_date(str(files[-1]), files[-1].stat().st_mtime_ns)
+    st.caption(f'Latest recorded detection in this archive: {newest:%d %b %Y}. This is not a live emergency feed.')
     day_from, day_to = chosen_period(newest)
     region = st.session_state['regiao']
     try:
         with st.spinner('Loading hot spots…'):
             files = point_files(day_from, day_to)
             common, total, cells = map_summary(files, day_from, day_to, heat_square(day_from, day_to))
-    except (ValueError, duckdb.Error):
-        files, common, total, cells = (), 0., 0, pd.DataFrame(columns=['lat', 'lon', 'n'])
+    except (ValueError, duckdb.Error) as error:
+        st.error(f'The selected observations could not be loaded: {error}')
+        return
     view = folium.Map(location=[-14, -52], zoom_start=4, tiles=None, prefer_canvas=True,
                       control_scale=True, zoom_control='topright')
     folium.TileLayer(tiles=SATELLITE_TILES, attr='Imagery &copy; Esri, Vantor, Earthstar Geographics',
@@ -785,7 +857,7 @@ def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
                                  key='timescale')
     newest = date.today() - timedelta(days=1)
     if scale == 'Month' or not (ROOT / 'data/processed/semanal.parquet').exists():
-        data = series.assign(period=pd.to_datetime(dict(year=series.ano, month=series.mes, day=1)))
+        data = series.assign(period=pd.to_datetime(dict(year=series.ano, month=series.mes, day=np.ones(len(series), dtype=int))))
         fig = px.bar(data, x='period', y='focos', color_discrete_sequence=['#F46D43'])
         note = 'Hot spots per month (the same numbers as the calendar).'
     else:
@@ -800,6 +872,8 @@ def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
             data = data.groupby('period', as_index=False).hotspots.sum()
             fig = px.bar(data, x='period', y='hotspots', color_discrete_sequence=['#F46D43'])
             note = ('Hot spots per day on EMBER\'s single common scale, the same one used for every year. '
+                    'Before 2012 these daily estimates are approximate: the conversion was calibrated monthly, '
+                    'not for exact-day comparisons. '
                     'Days with no satellite data are left empty (that is not the same as no fire). '
                     'One day can change a lot because of clouds; weeks and months are steadier.')
         else:
@@ -916,6 +990,8 @@ def search_table(points: pd.DataFrame) -> pd.DataFrame:
                           'Latitude': points.lat.round(4), 'Longitude': points.lon.round(4)})
     if 'frp_pct' in points.columns:
         table['Heat strength (stronger than % of hot spots)'] = points.frp_pct
+    if 'frp' in points.columns:
+        table['Radiative power (MW)'] = points.frp
     return table
 
 
@@ -949,8 +1025,10 @@ def main() -> None:
     for key, value in [('regiao', None), ('region_label', 'All of Brazil'), ('map_revision', 0)]:
         st.session_state.setdefault(key, value)
     st.markdown('## :material/local_fire_department: EMBER · Where and when does Brazil burn?')
-    st.caption('Each dot on the map is a **hot spot**: heat seen from space by a NASA satellite, almost always a fire. '
-               f'From {first_year} to today, all years on the same scale.')
+    last = coverage.iloc[-1]
+    st.caption('Each dot is a recorded **hot spot**: heat seen from space by a NASA satellite. '
+               f'Archive: {first_year} to {MONTHS[int(last.mes)-1]} {last_year}. '
+               'Monthly counts are adjusted to a common scale; older daily values remain approximate.')
     if is_mock:
         st.warning('Development data (mock), not the real harmonized series.')
     map_tab, how_tab = st.tabs(['Map', 'How it works'], default='Map', key='main_tabs', on_change='rerun')
