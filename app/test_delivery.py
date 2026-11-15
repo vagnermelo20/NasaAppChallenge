@@ -106,7 +106,7 @@ class CalendarDataTests(unittest.TestCase):
             pd.DataFrame({'lat': [-18.19, -18.18, -18.17], 'lon': [-56.41] * 3,
                           'data': pd.to_datetime(['2025-12-01', '2026-01-01', '2025-12-02']),
                           'hora_utc': [1200] * 3, 'satelite': ['S-NPP', 'S-NPP', 'Terra'],
-                          'frp': [2.] * 3, 'peso_harmonizado': [1.] * 3}).to_parquet(path)
+                          'frp': [2.] * 3, 'daynight': ['D'] * 3, 'peso_harmonizado': [1.] * 3}).to_parquet(path)
             points = hotspot_locations(str(path), path.stat().st_mtime_ns, 2025, 12,
                                        'VIIRS S-NPP', box(-57, -19, -56, -18).wkt)
             self.assertEqual(len(points), 1)

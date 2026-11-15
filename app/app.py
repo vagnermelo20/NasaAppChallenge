@@ -29,6 +29,7 @@ EXAMPLES = {
     'Matopiba': (-10.0, -46.0, 100.0),
     'Acre': (-9.0, -70.0, 100.0),
 }
+MAX_MAP_POINTS = 50_000   # above this the browser map becomes slow and unreadable
 FIRE_COLORS = ['#2C7BB6', '#ABD9E9', '#FFFFBF', '#FDAE61', '#D7191C']   # blue (few) -> red (many)
 FIRE_LABELS = ['>0–5', '>5–20', '>20–100', '>100–500', 'More than 500']
 FIRE_SENSORS = {'VIIRS S-NPP': 'n_viirs', 'MODIS Terra + Aqua': 'n_modis'}
@@ -129,13 +130,14 @@ def fire_signal_features(cells: pd.DataFrame, sensor: str, year: int, month: int
 
 @st.cache_data
 def hotspot_locations(path: str, version: int, year: int, month: int,
-                      sensor: str | None, region_wkt: str | None) -> pd.DataFrame:
-    start = date(year, month, 1)
-    end = date(year + (month == 12), month % 12 + 1, 1)
+                      sensor: str | None, region_wkt: str | None, days: tuple = (1, 31)) -> pd.DataFrame:
+    last = calendar.monthrange(year, month)[1]
+    start = date(year, month, max(1, days[0]))
+    end = date(year, month, min(last, days[1])) + timedelta(days=1)
     predicate = " AND satelite = 'S-NPP'" if sensor == 'VIIRS S-NPP' else (
         " AND satelite IN ('Terra', 'Aqua')" if sensor == 'MODIS Terra + Aqua' else '')
     with duckdb.connect() as con:
-        points = con.execute('SELECT lat, lon, data, hora_utc, satelite, frp, peso_harmonizado '
+        points = con.execute('SELECT lat, lon, data, hora_utc, satelite, frp, daynight, peso_harmonizado '
                              'FROM read_parquet(?) WHERE data >= ? AND data < ?' + predicate,
                              [path, start, end]).df()
     if region_wkt:
@@ -145,14 +147,19 @@ def hotspot_locations(path: str, version: int, year: int, month: int,
 
 def add_hotspot_locations(view: folium.Map, points: pd.DataFrame, opacity: float) -> None:
     # GeoJSON uses the map's canvas renderer for small, fixed-size detection dots.
+    # Each dot carries what a fire manager needs when clicking it.
+    cols = ['lat', 'lon', 'data', 'hora_utc', 'satelite', 'frp', 'daynight']
     data = {'type': 'FeatureCollection', 'features': [
         {'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [float(lon), float(lat)]},
-         'properties': {}} for lat, lon in points[['lat', 'lon']].itertuples(index=False, name=None)]}
+         'properties': {'Date': str(d)[:10], 'Time (UTC)': f'{int(h) // 100:02d}:{int(h) % 100:02d}',
+                        'Satellite': sat, 'Fire power (MW)': f'{frp:.1f}', 'Pass': 'Day' if dn == 'D' else 'Night'}}
+        for lat, lon, d, h, sat, frp, dn in points[cols].itertuples(index=False, name=None)]}
     if data['features']:
         folium.GeoJson(data, name='NASA FIRMS hotspot locations',
                        marker=folium.CircleMarker(radius=3, stroke=True, color='#FFFFFF', weight=0.6, fill=True,
                                                   fill_color='#FF241C', fill_opacity=opacity),
-                       interactive=False).add_to(view)
+                       popup=folium.GeoJsonPopup(fields=['Date', 'Time (UTC)', 'Satellite', 'Fire power (MW)', 'Pass'])
+                       ).add_to(view)
 
 
 @st.cache_data
@@ -464,12 +471,15 @@ def show_fire_map() -> None:
             months = sorted(int(m) for m in available[available.ano == year].mes)
             month = st.selectbox('Month', months, index=len(months)-1, format_func=lambda m: MONTHS[m-1],
                                  key='fire_month', persist_state='session')
+        last_day = calendar.monthrange(year, month)[1]
+        days = st.select_slider('Days of the month', options=list(range(1, last_day + 1)), value=(1, min(7, last_day)),
+                                key='fire_days', help='Dots are drawn only for these days. Fewer days = clearer map.')
         limit = st.toggle('Use selected area', value=False, key='fire_limit', persist_state='session',
                           help='Filter to the area applied in Calendar; otherwise show Brazil.')
         visual_mode = st.segmented_control('Display style', ['Hotspot locations', 'Analysis grid'],
                                            default='Hotspot locations', required=True, key='fire_visual_mode',
                                            width='stretch', persist_state='session',
-                                           help='Each red dot is one place where a satellite saw an unusually hot spot (one 375 m satellite pixel). Zoom in to separate them. Analysis grid groups the dots into ~28 km squares.')
+                                           help='Each red dot is one place where a satellite saw an unusually hot spot (one satellite pixel: 375 m for VIIRS since 2012, 1 km for MODIS before 2012). Zoom in to separate them. Analysis grid groups the dots into ~28 km squares.')
         with st.expander('Layer appearance'):
             compact_map = st.toggle('Compact map', value=False, key='fire_compact_map', persist_state='session',
                                     help='Use a shorter map on small screens. All data remain available in the tables and CSV downloads.')
@@ -480,7 +490,7 @@ def show_fire_map() -> None:
              observation_cells(path, version, sensor, year, month, region))
     origin = ('MODIS converted to VIIRS scale' if year < 2012 else 'VIIRS S-NPP observed') if harmonized else sensor
     unit = 'VIIRS-equivalent hotspots' if harmonized else 'Observed detections'
-    display_count = lambda value: f'{value:,.2f}' if harmonized else f'{value:,.0f}'
+    display_count = lambda value: f'{value:,.0f}'
     incomplete = bool(available.loc[(available.ano == year) & (available.mes == month), 'incompleto'].any()) if harmonized else None
     export = cells.assign(sensor=sensor, year=year, month=month,
                           dataset='harmonized' if harmonized else 'observed', source_file=grid.name,
@@ -534,10 +544,14 @@ def show_fire_map() -> None:
         point_file = ROOT / f'data/processed/focos/focos_{year}.parquet'
         if point_file.exists():
             points = hotspot_locations(str(point_file), point_file.stat().st_mtime_ns, year, month,
-                                       None if harmonized else sensor, region)
-            add_hotspot_locations(view, points, opacity)
-            st.caption(f'{len(points):,} recorded detection locations shown. The indicators and cell export above '
-                       'describe the monthly analysis grid; harmonized weights do not create additional map points.')
+                                       None if harmonized else sensor, region, tuple(days))
+            if len(points) > MAX_MAP_POINTS:
+                st.warning(f'{len(points):,} detections in these days: too many to draw clearly. '
+                           f'Choose fewer days or a smaller area (limit {MAX_MAP_POINTS:,}), or switch to Analysis grid.')
+            else:
+                add_hotspot_locations(view, points, opacity)
+                st.caption(f'{len(points):,} detections shown (days {days[0]}-{days[1]}). Click a dot to see its date, time, '
+                           'satellite and fire power. The numbers above describe the whole month.')
         else:
             st.info('Individual detection coordinates are not available for this year. Select Analysis grid to view activity.')
     else:
@@ -742,18 +756,23 @@ def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bo
         for month in values.columns:
             if flags.loc[year, month] and pd.notna(shown.loc[year, month]):
                 labels.loc[year, month] += '*'
-    fig = px.imshow(shown.to_numpy(), x=MONTHS, y=values.index.astype(str),
+    # Counts: log colour scale so the Aug-Oct peaks do not flatten the rest; labels and hover keep real values.
+    colour = shown.to_numpy() if anomaly else np.log10(shown.to_numpy(dtype=float) + 1)
+    fig = px.imshow(colour, x=MONTHS, y=values.index.astype(str),
                     color_continuous_scale='RdBu_r' if anomaly else 'RdYlBu_r', aspect='auto',
                     labels={'x': 'Month (UTC)', 'y': 'Year',
-                            'color': 'Anomaly (%)' if anomaly else 'Hotspots / month'})
+                            'color': 'vs usual (%)' if anomaly else 'Hotspots / month<br>(VIIRS scale)'})
     if anomaly:
-        finite = shown.to_numpy()[np.isfinite(shown.to_numpy())]
-        extent = max(1., float(np.abs(finite).max())) if len(finite) else 1.
-        fig.update_coloraxes(cmin=-extent, cmax=extent, cmid=0)
+        fig.update_coloraxes(cmin=-100, cmax=100, cmid=0, colorbar=dict(
+            tickvals=[-100, -50, 0, 50, 100], ticktext=['-100%', '-50%', 'usual', '+50%', '>= +100%']))
+    else:
+        top = int(np.ceil(np.nanmax(colour))) if np.isfinite(colour).any() else 1
+        ticks = list(range(0, top + 1))
+        fig.update_coloraxes(colorbar=dict(tickvals=ticks, ticktext=[f'{10**t:,.0f}' for t in ticks]))
     fig.update_traces(text=labels.to_numpy(), texttemplate='%{text}' if show_values else '',
                       customdata=np.where(flags.to_numpy(), 'Incomplete / unavailable', 'Complete'),
                       hovertemplate=('Year: %{y}<br>Month: %{x}<br>'
-                                     + ('Anomaly: %{z:+.1f}%' if anomaly else 'Hotspots: %{z:,.1f}')
+                                     + ('vs usual: %{text}' if anomaly else 'Hotspots: %{text}')
                                      + '<br>%{customdata}<extra></extra>'),
                       hoverongaps=False)
     if not show_values:
@@ -761,7 +780,7 @@ def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bo
         if not marked.empty:
             fig.add_trace(go.Scatter(
                 x=[MONTHS[int(m) - 1] for m in marked.mes], y=marked.ano.astype(str),
-                mode='text', text=['*'] * len(marked), textfont=dict(color='white', size=18),
+                mode='text', text=['*'] * len(marked), textfont=dict(color='#111111', size=18),
                 name='Incomplete data', hovertemplate='%{y} %{x}: incomplete data<extra></extra>'))
     if 2011 in values.index and 2012 in values.index:
         position = list(values.index).index(2011) + 0.5
@@ -923,8 +942,8 @@ def show_trends(series: pd.DataFrame, prefix: str) -> None:
                                      observed=('focos', 'count'), incomplete=('incompleto', 'any')).reset_index()
     annual['complete'] = (annual.observed == 12) & ~annual.incomplete
     fig = go.Figure()
-    for before, label, color in [(True, 'MODIS converted', '#4A90C2'),
-                                  (False, 'VIIRS observed', '#D7191C')]:
+    for before, label, color in [(True, 'MODIS converted', '#9AA5B1'),
+                                  (False, 'VIIRS observed', '#F28E2B')]:
         part = annual[annual.ano.lt(2012) == before]
         fig.add_trace(go.Scatter(x=part.ano, y=part.total.where(part.complete),
                                 mode='lines+markers', name=label, connectgaps=False,
