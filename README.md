@@ -195,10 +195,10 @@ the browser and scientific review handoff remains in VERIFY.md.
 Raw data, the mock, virtual environments and credentials must remain untracked.
 The original notebooks and figures are preserved for the scientific work and presentation.
 
-## Team responsibilities
+## Team Melo
 
-- **Person A — Data/science:** calibration, coverage, validation and final scientific artifacts.
-- **Person B — Application:** regional queries, visualization, accessibility and exports.
+- **Vagner Melo — Data/science:** calibration, coverage, validation and final scientific artifacts.
+- **Nathália Mello — Application:** regional queries, visualization, accessibility and exports.
 - **Joint delivery:** deployment, final credits, presentation, video and Space Apps submission.
 
-Public app: https://ember-fire-calendar.streamlit.app · Participant names will be finalized by the group before submission.
+Public app: https://ember-fire-calendar.streamlit.app

@@ -180,6 +180,7 @@ Aspecto final, tela cheia e layout móvel permanecem para conferência visual do
 - [x] **L11** Pedido do usuário: tudo da área na aba Map (calendário/anomalias, dia/semana/mês, sazonalidade, último mês × histórico, incerteza); apagadas For experts, Methodology, Trends e Day & week; aba Search hot spots por lat/lon + raio + datas; manchas de calor de longe e bolinhas de perto
 - [ ] **L8** Teste com 2–3 leigos (3 perguntas do plano)
 - [x] **L16** Correções solicitadas após revisão: tabela paginada de 5.000 registros, filtro exato da área no DuckDB antes da paginação, totais completos por agregação SQL, cache limitado por entradas e CSV explicitamente da página. FRP bruto (MW), instrumento e dia/noite restaurados no CSV técnico. Comunicação distingue calibração mensal, estimativas diárias pré-2012, percentil relativo e resultado A2 final não atingido; arquivo não é anunciado como dados até hoje. README e VERIFY atualizados em paralelo. Após autorização para testar: 26 testes passaram, incluindo polígono com buraco e última página; API local com dados reais set/2024 em raio 500 km (-10,-50) mostrou 186.089 detecções em 38 páginas, CSVs de 5.000/5.000/1.089 nas páginas 1/2/38 e reset da página ao mudar datas. Conferência visual permanece com a Pessoa A.
+- [x] **L17** Pedido do usuário após o L16: CSV e tabela só com o registro unificado (sem satélite/MW/dia-noite), lista e CSV da área completos sem páginas (`area_points`), How it works em palavras simples com os números técnicos só no painel escondido. 26 testes ok.
 
 ---
 

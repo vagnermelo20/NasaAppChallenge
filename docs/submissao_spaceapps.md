@@ -1,7 +1,7 @@
 # Space Apps 2026 — project submission (MODIS and VIIRS Hot Spots Harmonization)
 
 Field by field, in the order of the project form. Copy each block into the Project page.
-Fill the two `TODO` items before clicking **Submit for Judging** (deadline: Sunday 15 Nov 2026, 11:59 p.m. local time).
+Fill the remaining `TODO` item (demo link) before clicking **Submit for Judging** (deadline: Sunday 15 Nov 2026, 11:59 p.m. local time).
 
 ---
 
@@ -31,7 +31,7 @@ EMBER is a web app with two tabs.
 - a "usual year" chart (seasonality), hot spots per year, and the last full month compared with the same month in every other year;
 - a monthly CSV.
 
-**How it works.** The project explained in seven simple steps for non-specialists.
+**How it works.** The project explained in six short sections for non-specialists, with the scientific limits one click away.
 
 ### How does it work?
 1. **Data.** NASA FIRMS archives for Brazil: MODIS Collection 6.1 (Terra since 2001, Aqua since July 2002, ~1 km pixels) and VIIRS S-NPP 375 m (since 2012), plus 2026 from the FIRMS API. 22.5 million hot spots in total.
@@ -42,7 +42,7 @@ EMBER is a web app with two tabs.
    - Brazil: monthly correlation 0.998, mean annual error 1.6%;
    - 2° regions: 92% of years and 66% of months within ±20% of real VIIRS (median monthly difference 13.5%); for reference, two identical VIIRS satellites (S-NPP and NOAA-20) agree 85% of months;
    - pre-2012 values come with a calibrated 90% uncertainty band (empirical coverage 89.9%);
-   - what did not work is reported too: the peak month in single 0.25° cells is right 73.7% of the time (90.4% within ±1 month), below our 80% target, so the app says the peak month is most reliable for areas of about 2° or more. We also tested and rejected day/night factors, neighbourhood smoothing, power-law and quantile-mapping conversions.
+   - what did not work is reported too: the peak month in single 0.25° cells is right 73.7% of the time (90.4% within ±1 month), so the app says the peak month is most reliable for areas of about 2° or more. There is also a natural limit: two identical VIIRS satellites flying together agree within ±20% in only 85% of months (different pass times, clouds, short fires), so no conversion can reach 100% month by month. We also tested and rejected day/night factors, neighbourhood smoothing, power-law and quantile-mapping conversions.
 6. **Daily series.** The same harmonized scale is extended to days and weeks; days with no satellite data are left empty instead of being counted as "no fire".
 7. **App.** Python + DuckDB query the Parquet files directly, so an area over 25 years answers in about a second.
 
@@ -82,4 +82,6 @@ Yes. The idea and the scientific method (harmonizing MODIS to the VIIRS scale wi
 - All code and text are our own work, with the AI assistance described above.
 
 ## Team
-TODO — team name and the full name of every member (also put them on the title slide and in the README).
+**Team Melo**
+- Vagner Melo — data and science (harmonization, validation)
+- Nathália Mello — web app (queries, visualization, exports)

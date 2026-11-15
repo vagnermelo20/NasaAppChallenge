@@ -18,10 +18,10 @@ from app.check_release import inspect_release
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
-                     hotspot_locations, add_hotspot_locations, map_legend, season_text,
+                     hotspot_locations, add_hotspot_locations, map_legend, unified_notice, season_text,
                      area_sentences, search_hotspots, point_export, interval_coverage, heat_cells,
                      radius_polygon, search_table, add_heat, heat_top, view_box, dots_in_view, with_heat_rank,
-                     map_summary, heat_square, area_point_totals, SEARCH_PAGE_SIZE)
+                     map_summary, heat_square, area_point_totals, area_points, SEARCH_PAGE_SIZE)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -74,10 +74,9 @@ class CalendarDataTests(unittest.TestCase):
             export = point_export(points)
             self.assertEqual(export.time_utc.tolist(), ['13:29', '00:05'])
             decoded = pd.read_csv(io.StringIO(export.to_csv(index=False)))
-            self.assertEqual(decoded.hotspots_common_scale.sum(), 3.25)
-            self.assertEqual(decoded.satellite.tolist(), ['Terra', 'S-NPP'])
-            self.assertEqual(decoded.frp_mw.tolist(), [3., 2.])
-            self.assertEqual(decoded.daynight.tolist(), ['D', 'N'])
+            self.assertEqual(decoded.hotspots_common_scale.sum(), 3.25)       # unified: no satellite in the CSV
+            for removed in ['satellite', 'frp_mw', 'daynight']:
+                self.assertNotIn(removed, decoded.columns)
             clipped, _ = search_hotspots(tuple(files), date(2024, 12, 30), date(2025, 1, 2),
                                          'VIIRS S-NPP', box(-56.5, -18.5, -56, -18).wkt)
             self.assertEqual(len(clipped), 2)
@@ -130,6 +129,9 @@ class CalendarDataTests(unittest.TestCase):
             self.assertNotEqual(first.peso_harmonizado.sum(), total)
             self.assertEqual(area_point_totals(files, date(2025, 1, 1), date(2025, 1, 1),
                                               box(10, 10, 11, 11).wkt), (0, 0.))
+            everything = area_points(files, date(2025, 1, 1), date(2025, 1, 1), region)   # no cap, hole excluded
+            self.assertEqual(everything.hora_utc.tolist(), [100, 300])
+            self.assertEqual(everything.peso_harmonizado.sum(), total)
 
     def test_default_page_limit_keeps_last_page_without_duplicates(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -348,6 +350,10 @@ class SimpleMapTests(unittest.TestCase):
         for removed in ['Seen by', 'MODIS', 'VIIRS', 'older', 'satellite', 'night pass', 'square', 'normal']:
             self.assertNotIn(removed, html)
         self.assertIn('click it', map_legend())
+        notice = unified_notice()
+        self.assertIn('raw satellite detections', notice)
+        self.assertIn('single unified record', notice)
+        self.assertIn('font-size:1.25rem', notice)
 
     def test_fire_season_in_plain_words(self):
         self.assertEqual(season_text([8, 9, 10]), ('Aug to Oct', 8))
@@ -394,8 +400,7 @@ class SimpleMapTests(unittest.TestCase):
         table = search_table(pd.DataFrame({'lat': [-30.12345], 'lon': [-55.], 'data': pd.to_datetime(['2026-11-02']),
                                            'hora_utc': [130], 'satelite': ['Aqua'], 'frp': [12.34]}))
         self.assertEqual(table.iloc[0]['When (Brasília time)'], pd.Timestamp('2026-11-01 22:30'))
-        self.assertTrue({'When (Brasília time)', 'Latitude', 'Longitude'}.issubset(table.columns))
-        self.assertIn(12.34, table.iloc[0].tolist())
+        self.assertEqual(list(table.columns), ['When (Brasília time)', 'Latitude', 'Longitude'])   # no satellite, no MW
 
 def app_test():
     return AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=60)
@@ -457,11 +462,9 @@ class ApplicationTests(unittest.TestCase):
             explanation = ' '.join(m.value for m in app.markdown)
             self.assertIn('monthly activity', explanation)
             self.assertIn('Daily values before 2012 are approximate', explanation)
-            self.assertIn('73.7%', explanation)
-            self.assertIn('90.4%', explanation)
-            self.assertIn('not met', explanation)
-            self.assertNotIn('now any two years can be compared directly', explanation)
-            self.assertNotIn('to today', explanation)
+            self.assertIn('73.7%', explanation)                              # technical limits stay in the expander
+            self.assertIn('85%', explanation)                                # natural limit, not a target
+            self.assertNotIn('80%', explanation)
             app.session_state['main_tabs'] = 'Map'
             app.run()
             header = ' '.join(c.value for c in app.caption)
@@ -476,8 +479,7 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(app.exception)
             self.assertIsNotNone(app.session_state['regiao'])
             self.assertIn('50 km around -5.0000, -45.0000', app.session_state['region_label'])
-            self.assertTrue(any('recorded detections' in c.value and 'Totals cover the whole selection' in c.value
-                                for c in app.caption))
+            self.assertTrue(any('hot spots** inside your area' in c.value for c in app.caption))
             self.assertEqual(len(app.dataframe), 1)
 
     def test_area_page_has_calendar_timescales_and_usual_year(self):
