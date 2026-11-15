@@ -6,7 +6,7 @@ Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vag
 ## Como retomar numa conversa nova (comece por aqui)
 1. Leia este arquivo inteiro; depois `specs/tasks.md` (o que está feito/aberto) e `AGENTS.md`.
 2. `git pull` na `main`. Rodar o app: `.venv/Scripts/python.exe -m streamlit run app/app.py` (http://localhost:8501) ou `.claude/launch.json` ("ember-app").
-3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (26 testes) e `.venv/Scripts/python -m app.check_release`.
+3. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (22 testes) e `.venv/Scripts/python -m app.check_release`.
 4. O usuário é a **Pessoa A** (dados/ciência); a Pessoa B fez o front-end. Hoje trabalhamos os dois no mesmo repositório, só na `main`.
 
 ## Regras (do usuário)
@@ -32,13 +32,14 @@ Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vag
 Resultado (deixando o ano de fora): Brasil erro anual 1,6%; região 2° × mês 66% dentro de ±20% (mediana 13,5%); por ano 92%; dois VIIRS iguais 85%/mês. A2 (pico por célula ≥ 80%) não atingido: 73,7%.
 Testado e rejeitado: k dia/noite, vizinhança 3×3, climatologia como prior, covariáveis do MODIS por região×mês (P90 FRP etc.).
 
-## App (app/app.py, Streamlit)
-Fire map (um mapa só: escolher data/intervalo, MODIS e VIIRS juntos; popup nos pontos; limite 50 mil pontos) · Calendar (área desenhada, resumo automático 'What this area tells you', botão sem/com harmonização, visão Day/Week/Month, calendário azul→vermelho em escala log) · Hotspot search (CSV) · Trends · Methodology. Testes: `.venv/Scripts/python -m unittest app.test_delivery`. Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
+## App (app/app.py, Streamlit) — versão para leigos (15/11/2026)
+3 abas: **Map** (mapa único: focos FIRMS sobre satélite, cor pela idade, últimos 1/7/30 dias ou datas, popup em hora de Brasília; desenhar a área no mesmo mapa → "Show fire history for this area" → frases simples, calendário azul→vermelho em escala log, barras por ano, demo sem/com harmonização, CSV) · **How it works** (7 passos simples) · **For experts** (busca de focos, dia/semana, calendário com anomalias e faixa de incerteza, tendências, metodologia). Sem barra lateral. Testes: `.venv/Scripts/python -m unittest app.test_delivery` (22 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
 
 ## Pendências (atualizado 15/11/2026)
 - **Entrega:** nomes da equipe (README e submissão), vídeo de 30 s, envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
 - **Série diária:** NOAA-20 de 2026 pela API (03–14/11/2026 vazios; S-NPP sem dados desde 02/11); faixa de incerteza diária (D4); medir concordância diária/semanal (D1).
 - **Harmonização v3:** lei de potência e quantile mapping testados e rejeitados; resta testar o k físico pela distribuição de FRP (expectativa baixa).
+- **App para leigos:** falta o L8 (mostrar a 2–3 leigos e corrigir onde travarem) e publicar (commit na main → Streamlit Cloud atualiza sozinho).
 - Opcional: contornos de estados/biomas no mapa; teste automático que pegue o calendário vazio (eixo de categorias).
 
 ## Plano: harmonização v3 (proposta, ainda não implementada)
@@ -81,6 +82,9 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (noite): usuário pediu app entendível por leigos. Diagnóstico: o mapa do Calendar não mostra os focos (mapa de ruas vazio; `show_area_hotspots` existe mas não é chamada), 6 abas, controles e jargão demais. Plano L1–L9 em `specs/plano_leigos.md` (mapa único com focos + desenho, cor pela idade como no FIRMS, 3 abas: Map / How it works / For experts). Aguardando aprovação.
+- 15/11/2026 (noite): **plano para leigos executado** (L1–L7, L9): 3 abas Map / How it works / For experts; mapa único com focos coloridos pela idade e desenho da área; resumo em frases; sem barra lateral; apagados o Fire map antigo, grade de análise, catálogo, Lat-Lon + raio e filtro de anos (app.py 1.540 → ~1.100 linhas). README atualizado. Falta L8 (teste com leigos) e publicar.
+- 15/11/2026 (noite): feita a aba **How it works** (L10), explicação para leigos em 7 passos, com o gráfico sem/com harmonização do Brasil. Agora são 7 abas; teste de contagem de abas ajustado (26 testes ok).
 - 15/11/2026 (tarde): série diária/semanal (notebooks/09_serie_diaria.py, cascata S-NPP → NOAA-20 → MODIS convertido; soma diária = mensal) e visão Day/Week/Month no Calendar do app. Falta: NOAA-20 de 2026 pela API e faixa de incerteza diária.
 - 14/11/2026: Fases 1–3, prova, base de focos, publicação, revisões independentes (ver specs/tasks.md).
 - 15/11/2026: cores azul→vermelho, textos simples, filtro de data no mapa, mapa único; regras "só main" e "sem Claude nos commits"; este arquivo criado.

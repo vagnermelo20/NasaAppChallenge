@@ -18,10 +18,8 @@ from app.check_release import inspect_release
 
 from app.app import (anomaly_values, cached_series, calendar_figure, complete_months,
                      data_source, drawn_region, export_table, latest_comparison, metadata,
-                     radius_polygon, fire_class, fire_features, fire_legend,
-                     observation_cells, observation_months, harmonized_map_cells,
-                     fire_signal_features, add_activity_layer, hotspot_locations, add_hotspot_locations,
-                     search_hotspots, point_export, interval_coverage, sensor_interval_coverage)
+                     hotspot_locations, add_hotspot_locations, age_class, map_legend, season_text,
+                     area_sentences, search_hotspots, point_export, interval_coverage, sensor_interval_coverage)
 
 
 class ReleaseReadinessTests(unittest.TestCase):
@@ -100,102 +98,11 @@ class CalendarDataTests(unittest.TestCase):
         self.assertFalse(sensor_interval_coverage('MODIS Terra + Aqua', date(2012, 1, 1), date(2012, 1, 2)))
         self.assertTrue(sensor_interval_coverage('All available sensors', date(2011, 12, 31), date(2012, 1, 1)))
 
-    def test_hotspot_locations_filter_date_sensor_and_exact_coordinates(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / 'points.parquet'
-            pd.DataFrame({'lat': [-18.19, -18.18, -18.17], 'lon': [-56.41] * 3,
-                          'data': pd.to_datetime(['2025-12-01', '2026-01-01', '2025-12-02']),
-                          'hora_utc': [1200] * 3, 'satelite': ['S-NPP', 'S-NPP', 'Terra'],
-                          'frp': [2.] * 3, 'daynight': ['D'] * 3, 'peso_harmonizado': [1.] * 3}).to_parquet(path)
-            points = hotspot_locations(str(path), path.stat().st_mtime_ns, 2025, 12,
-                                       'VIIRS S-NPP', box(-57, -19, -56, -18).wkt)
-            self.assertEqual(len(points), 1)
-            self.assertEqual(points.lat.iloc[0], -18.19)
-            import folium
-            view = folium.Map(tiles=None, prefer_canvas=True)
-            add_hotspot_locations(view, points, .8)
-            fire_legend(True, 'Hotspot locations', 'Dec 2025').add_to(view)
-            html = view.get_root().render()
-            self.assertIn('#FF241C', html)
-            self.assertIn('[-56.41, -18.19]', html)
-            self.assertNotIn('Activity glow', html)
 
-    def test_signal_view_preserves_counts_and_marks_only_cell_centers(self):
-        cells = pd.DataFrame({'lat': [-18.25, -18.0], 'lon': [-56.5, -56.25],
-                              'hotspots': [5.75, 1200.5]})
-        points = fire_signal_features(cells, 'MODIS converted', 2010, 9)['features']
-        self.assertEqual(points[0]['geometry'], {'type': 'Point', 'coordinates': [-56.375, -18.125]})
-        self.assertEqual(sum(p['properties']['hotspots'] for p in points), cells.hotspots.sum())
-        self.assertLess(points[0]['properties']['radius'], points[1]['properties']['radius'])
-        self.assertLessEqual(points[1]['properties']['radius'], 15)
-        self.assertIn('aggregate cell', points[0]['properties']['location_type'])
-        import folium
-        view = folium.Map(tiles=None)
-        add_activity_layer(view, cells, 'MODIS converted', 2010, 9, .8, 'Signal view')
-        fire_legend(True, 'Signal view', 'Sep 2010').add_to(view)
-        html = view.get_root().render()
-        self.assertIn('L.CircleMarker', html)
-        self.assertIn('ember-map-legend', html)
-        self.assertIn('Sep 2010', html)
-        self.assertIn('requestFullscreen', html)
 
-    def test_scientific_satellite_grid_aggregates_passes_without_mixing_sensors(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / 'grid_sat.parquet'
-            pd.DataFrame({'lat': [-18.25] * 4, 'lon': [-56.5] * 4, 'ano': [2024] * 4,
-                          'mes': [9] * 4, 'satellite': ['S-NPP', 'S-NPP', 'Terra', 'Aqua'],
-                          'daynight': ['D', 'N', 'D', 'D'], 'n': [10, 20, 5, 7]}).to_parquet(path)
-            version = path.stat().st_mtime_ns
-            viirs = observation_cells(str(path), version, 'VIIRS S-NPP', 2024, 9, None)
-            modis = observation_cells(str(path), version, 'MODIS Terra + Aqua', 2024, 9, None)
-            self.assertEqual(viirs.hotspots.sum(), 30)
-            self.assertEqual(modis.hotspots.sum(), 12)
-            self.assertEqual(len(observation_months(str(path), version, 'VIIRS S-NPP')), 1)
 
-    def test_harmonized_map_preserves_fractional_values_and_incomplete_flag(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / 'harmonized.parquet'
-            pd.DataFrame({'lat': [-18.25, -18.25], 'lon': [-56.5, -56.], 'ano': [2010, 2010],
-                          'mes': [9, 9], 'focos_harmonizados': [5.75, 100.25],
-                          'fonte': ['modis_convertido'] * 2, 'dado_incompleto': [True] * 2}).to_parquet(path)
-            cells = harmonized_map_cells(str(path), path.stat().st_mtime_ns, 2010, 9, None)
-            self.assertEqual(cells.hotspots.sum(), 106.)
-            self.assertTrue(cells.incomplete.all())
-            features = fire_features(cells, 'MODIS converted', 2010, 9)['features']
-            self.assertEqual(features[0]['properties']['hotspots'], 100.25)
-            self.assertEqual(features[1]['properties']['hotspots'], 5.75)
-            self.assertEqual(features[1]['properties']['range'], '>5–20')
 
-    def test_fire_classes_and_cell_geometry(self):
-        self.assertEqual([fire_class(value) for value in [1, 5, 6, 20, 21, 100, 101, 500, 501]],
-                         [0, 0, 1, 1, 2, 2, 3, 3, 4])
-        cells = pd.DataFrame({'lat': [-18.25], 'lon': [-56.5], 'hotspots': [501]})
-        feature = fire_features(cells, 'VIIRS S-NPP', 2024, 9)['features'][0]
-        from shapely.geometry import shape
-        self.assertEqual(shape(feature['geometry']).bounds, (-56.5, -18.25, -56.25, -18.0))
-        self.assertEqual(feature['properties']['range'], 'More than 500')
-        self.assertEqual(feature['properties']['hotspots'], 501)
-        import folium
-        view = folium.Map()
-        fire_legend().add_to(view)
-        self.assertIn('NASA FIRMS monthly hotspot count legend', view.get_root().render())
 
-    def test_observed_layer_queries_sensor_and_month(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            path = Path(temporary) / 'observations.parquet'
-            pd.DataFrame({'lat': [-18.25, -18.25, -18.25],
-                          'lon': [-56.5, -56.5, -56.0], 'ano': [2024] * 3,
-                          'mes': [8, 9, 9], 'n_modis': [3, 5, 7],
-                          'n_viirs': [10, 20, 30]}).to_parquet(path)
-            version = path.stat().st_mtime_ns
-            self.assertEqual(list(observation_months(str(path), version, 'VIIRS S-NPP').mes), [8, 9])
-            selected = observation_cells(str(path), version, 'VIIRS S-NPP', 2024, 9,
-                                         box(-56.4, -18.2, -56.3, -18.0).wkt)
-            self.assertEqual(selected.hotspots.sum(), 20)
-            modis = observation_cells(str(path), version, 'MODIS Terra + Aqua', 2024, 9, None)
-            self.assertEqual(modis.hotspots.sum(), 12)
-            with self.assertRaises(ValueError):
-                observation_cells(str(path), version, 'unknown', 2024, 9, None)
 
     def test_dataset_contract_reports_missing_and_invalid_values(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -266,16 +173,6 @@ class CalendarDataTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             drawn_region({'all_drawings': [{'geometry': mapping(Point(0, 0))}]})
 
-    def test_radius_distance_at_southern_latitude(self):
-        lat, lon, radius = -30., -55., 100.
-        circle = radius_polygon(lat, lon, radius)
-        self.assertTrue(circle.contains(Point(lon, lat)))
-        for x, y in circle.exterior.coords:
-            a = (math.sin(math.radians(y - lat) / 2) ** 2
-                 + math.cos(math.radians(lat)) * math.cos(math.radians(y))
-                 * math.sin(math.radians(x - lon) / 2) ** 2)
-            distance = 6371.0088 * 2 * math.asin(math.sqrt(a))
-            self.assertAlmostEqual(distance, radius, places=6)
 
     def test_csv_anomalies_zero_baseline_and_mock_label(self):
         series = pd.DataFrame({
@@ -344,33 +241,115 @@ class CalendarDataTests(unittest.TestCase):
         self.assertEqual(figure.layout.coloraxis.cmid, 0)
 
 
-class ApplicationTests(unittest.TestCase):
-    def test_map_workspace_opens_first_without_hidden_calendar_rendering(self):
-        with patch('streamlit_folium.st_folium', return_value={}):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30).run()
-            self.assertFalse(app.exception)
-            self.assertEqual(app.tabs[0].label, 'Fire map')
-            self.assertEqual(len(app.get('plotly_chart')), 0)
-            self.assertEqual(app.selectbox(key='fire_product').value, 'Harmonized activity')
-            self.assertEqual(app.slider(key='fire_opacity').value, .8)
-            self.assertEqual(len(app.get('download_button')), 1)
-            app.selectbox(key='fire_product').select('Sensor observations').run()
-            self.assertFalse(app.exception)
-            self.assertEqual(app.selectbox(key='fire_sensor').value, 'VIIRS S-NPP')
+class SimpleMapTests(unittest.TestCase):
+    def test_hotspot_locations_filter_date_sensor_and_exact_coordinates(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / 'points.parquet'
+            pd.DataFrame({'lat': [-18.19, -18.18, -18.17], 'lon': [-56.41] * 3,
+                          'data': pd.to_datetime(['2025-12-01', '2026-01-01', '2025-12-02']),
+                          'hora_utc': [1200] * 3, 'satelite': ['S-NPP', 'S-NPP', 'Terra'],
+                          'frp': [2.] * 3, 'daynight': ['D'] * 3, 'peso_harmonizado': [1.] * 3}).to_parquet(path)
+            points = hotspot_locations(str(path), path.stat().st_mtime_ns, 2025, 12,
+                                       'VIIRS S-NPP', box(-57, -19, -56, -18).wkt)
+            self.assertEqual(len(points), 1)
+            self.assertEqual(points.lat.iloc[0], -18.19)
 
-    def test_empty_selection(self):
-        with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
-            app.session_state['main_tabs'] = 'Calendar'
-            app.run()
-            # example regions were removed (users draw their own area); switch to coordinates instead
-            app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
-            app.number_input(key='latitude').set_value(-30.)
-            app.number_input(key='longitude').set_value(-35.)
-            app.number_input(key='radius').set_value(5.)
-            app.button(key='update').click().run()
+    def test_dots_are_coloured_by_age_with_plain_popup(self):
+        days = pd.Series(pd.to_datetime(['2026-11-02', '2026-11-01', '2026-10-27', '2026-10-26']))
+        self.assertEqual(list(age_class(days, date(2026, 11, 2))), [2, 1, 1, 0])
+        points = pd.DataFrame({'lat': [-18.19, -10.0], 'lon': [-56.41, -50.0], 'data': days[:2],
+                               'hora_utc': [1530, 200], 'satelite': ['S-NPP', 'Terra']})
+        import folium
+        view = folium.Map(tiles=None, prefer_canvas=True)
+        add_hotspot_locations(view, points, date(2026, 11, 2))
+        html = view.get_root().render()
+        self.assertIn('#FFE14D', html)                     # latest day: yellow
+        self.assertIn('#FF8C1A', html)                     # 2-7 days: orange
+        self.assertIn('[-56.41, -18.19]', html)
+        self.assertIn('02 Nov 2026, 12:30', html)          # 15:30 UTC -> Brasília time
+        self.assertIn('31 Oct 2026, 23:00', html)          # crossing midnight
+        self.assertIn('older satellite', html)
+        self.assertIn('Latest day', map_legend(date(2026, 11, 2), date(2026, 11, 2)))
+        self.assertNotIn('Older', map_legend(date(2026, 10, 30), date(2026, 11, 2)))
+        self.assertIn('Older', map_legend(date(2026, 10, 1), date(2026, 11, 2)))
+
+    def test_fire_season_in_plain_words(self):
+        self.assertEqual(season_text([8, 9, 10]), ('Aug to Oct', 8))
+        self.assertEqual(season_text([1, 2, 12]), ('Dec to Feb', 12))
+        self.assertEqual(season_text([3, 9]), ('Mar, Sep', 3))
+        series = pd.DataFrame({'ano': np.repeat([2020, 2021, 2022, 2023], 12), 'mes': np.tile(range(1, 13), 4),
+                               'focos': np.tile([1, 1, 1, 1, 1, 1, 5, 50, 100, 60, 2, 1], 4).astype(float),
+                               'incompleto': False})
+        lines = area_sentences(series)
+        self.assertIn('Aug to Oct', lines[0])
+        self.assertIn('**Sep**', lines[0])
+        self.assertIn('Jun and Jul', lines[1])
+        self.assertTrue(any('about the usual' in line for line in lines))
+        self.assertEqual(area_sentences(series.assign(focos=0.)), [])
+
+
+def app_test():
+    return AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=60)
+
+
+class ApplicationTests(unittest.TestCase):
+    def test_opens_on_simple_map_with_three_tabs(self):
+        with patch('streamlit_folium.st_folium', return_value={}):
+            app = app_test().run()
             self.assertFalse(app.exception)
-            self.assertTrue(any('No grid-cell centers' in w.value for w in app.warning))
+            self.assertEqual([tab.label for tab in app.tabs[:3]], ['Map', 'How it works', 'For experts'])
+            self.assertEqual(app.get('segmented_control')[0].value, 'Latest 7 days')
+            self.assertEqual(len(app.sidebar), 0)
+            self.assertEqual(len(app.get('download_button')), 1)
+            self.assertTrue(app.button(key='apply_map').disabled)
+            text = ' '.join(m.value for m in app.markdown) + ' '.join(c.value for c in app.caption)
+            for jargon in ['UTC', '0.25°', 'VIIRS-equivalent', 'A2', 'grid cell']:
+                self.assertNotIn(jargon, text)
+
+    def test_drawing_persists_and_delete_resets_region(self):
+        payload = {'all_drawings': None}
+        with patch('streamlit_folium.st_folium', side_effect=lambda *args, **kwargs: payload):
+            app = app_test().run()
+            payload['all_drawings'] = [{'geometry': mapping(box(-58, -20, -55, -16))}]
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertIsNone(app.session_state['regiao'])
+            app.button(key='apply_map').click().run()
+            selected = app.session_state['regiao']
+            self.assertIsNotNone(selected)
+            self.assertTrue(any('Your area' in m.value for m in app.markdown))
+            app.run()
+            self.assertEqual(app.session_state['regiao'], selected)
+            payload['all_drawings'] = []
+            app.run()
+            self.assertEqual(app.session_state['regiao'], selected)
+            app.button(key='apply_map').click().run()
+            self.assertIsNone(app.session_state['regiao'])
+
+    def test_tiny_area_and_clear(self):
+        payload = {'all_drawings': [{'geometry': mapping(box(-35.01, -30.01, -35.0, -30.0))}]}
+        with patch('streamlit_folium.st_folium', side_effect=lambda *args, **kwargs: payload):
+            app = app_test().run()
+            app.button(key='apply_map').click().run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any('too small' in w.value for w in app.warning))
+            payload['all_drawings'] = None
+            app.button(key='reset_region').click().run()
+            self.assertFalse(app.exception)
+            self.assertIsNone(app.session_state['regiao'])
+
+    def test_how_it_works_and_expert_tabs_open(self):
+        with patch('streamlit_folium.st_folium', return_value={}):
+            app = app_test()
+            app.session_state['main_tabs'] = 'How it works'
+            app.run()
+            self.assertFalse(app.exception)
+            self.assertTrue(any('simple words' in s.value for s in app.subheader))
+            app.session_state['main_tabs'] = 'For experts'
+            for tab in ['Search hot spots', 'Day & week', 'Calendar details', 'Trends', 'Methodology']:
+                app.session_state['expert_tabs'] = tab
+                app.run()
+                self.assertFalse(app.exception, tab)
 
     def test_methodology_missing_and_invalid_metrics(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -384,51 +363,6 @@ class ApplicationTests(unittest.TestCase):
                 app.run()
                 self.assertFalse(app.exception)
                 self.assertTrue(any('could not be loaded' in w.value for w in app.warning))
-
-    def test_drawing_persists_and_delete_resets_region(self):
-        payload = {'all_drawings': None}
-        with patch('streamlit_folium.st_folium', side_effect=lambda *args, **kwargs: payload):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
-            app.session_state['main_tabs'] = 'Calendar'
-            app.run()
-            payload['all_drawings'] = [{'geometry': mapping(box(-58, -20, -55, -16))}]
-            app.run()
-            self.assertFalse(app.exception)
-            self.assertIsNone(app.session_state['regiao'])
-            app.button(key='apply_map').click().run()
-            selected = app.session_state['regiao']
-            self.assertIsNotNone(selected)
-            app.run()
-            self.assertEqual(app.session_state['regiao'], selected)
-            payload['all_drawings'] = []
-            app.run()
-            self.assertFalse(app.exception)
-            self.assertEqual(app.session_state['regiao'], selected)
-            app.button(key='apply_map').click().run()
-            self.assertIsNone(app.session_state['regiao'])
-
-    def test_coordinate_update_reset_and_download(self):
-        # Leaflet is browser-only; verify Python UI behavior separately.
-        with patch('streamlit_folium.st_folium', return_value={'all_drawings': None}):
-            app = AppTest.from_file(str(Path(__file__).with_name('app.py')), default_timeout=30)
-            app.session_state['main_tabs'] = 'Calendar'
-            app.run()
-            self.assertFalse(app.exception)
-            self.assertEqual(len(app.tabs), 6)
-            app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
-            app.slider(key='year_range').set_value((2015, 2020))
-            app.number_input(key='radius').set_value(100.)
-            app.button(key='update').click().run()
-            self.assertFalse(app.exception)
-            self.assertEqual(app.session_state['applied_years'], (2015, 2020))
-            self.assertIsNotNone(app.session_state['regiao'])
-            self.assertEqual(len(app.get('download_button')), 1)
-            app.radio(key='region_mode').set_value('Draw on map').run()
-            app.radio(key='region_mode').set_value('Lat-Lon + radius').run()
-            self.assertEqual(app.number_input(key='radius').value, 100.)
-            app.button(key='reset_region').click().run()
-            self.assertFalse(app.exception)
-            self.assertIsNone(app.session_state['regiao'])
 
 
 if __name__ == '__main__':

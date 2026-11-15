@@ -13,8 +13,7 @@ records on a consistent VIIRS-equivalent scale.
 1,252,185 cell-month records for 2001–2026 (2026 provisional; months with missing observation days flagged).
 The map, calendar, trends and CSV exports are connected to this delivery.
 Final-method validation is complete: the 0.25° cell peak-month criterion (80%) was not met
-(73.7%; 90.4% within ±1 month); see the methodology for all scales. Data for 2026 and public
-deployment are still pending. No public application URL is recorded yet.
+(73.7%; 90.4% within ±1 month); see the methodology for all scales.
 
 ## Why harmonization matters
 
@@ -27,48 +26,25 @@ not forecast ignition or provide operational emergency alerts.
 
 ## Features
 
-The interface is branded **EMBER · Earth Fire Observatory**. It opens on a
-map-focused workspace with a dark observation catalog, compact indicators,
-layer opacity controls, a source card and a matching map legend. Calendar,
-Trends and Methodology load their content only when selected.
+**EMBER** is built so that anyone can use it, with no satellite knowledge. It has three tabs:
 
-The map opens in **Hotspot locations** on Esri satellite imagery. Small red dots
-show actual detection coordinates from the science team's annual point files,
-without halos or proportional sizing. Dots are detections, not unique fires.
-The indicators and cell export retain the monthly analysis totals. **Analysis grid**
-retains the original polygons. The compact horizontal legend, region outline
-and fullscreen control keep the map readable. Dark atlas and the street
-map are alternative backgrounds, with provider attribution. Esri background
-imagery is context and is not synchronized to the NASA observation date.
+- **Map** — opens on the NASA FIRMS hot spots of the latest 7 days on satellite imagery with place names,
+  coloured by age like the FIRMS map (yellow = latest day, orange = 2–7 days before, red = older).
+  Choose the latest day, 7 days, 30 days or any dates (up to 92 days). Click a dot to see when
+  (Brasília time) and which satellite saw it. Draw a box or shape on the **same map** and press
+  **Show fire history for this area**. Below the map, the area (or all of Brazil) is explained in plain
+  sentences: fire season, worst month, when to get ready, worst year and how the last full month compares
+  with a usual one; then a year × month fire calendar (blue = few, red = many), hot spots per year,
+  a short "Why can we compare 2005 with 2024?" demo and a CSV download.
+- **How it works** — the project in seven simple steps: satellites look for heat, the old and the new
+  satellite, the false jump in 2012, what we did (like converting an old currency), how good it is, what you
+  can do with EMBER and what to keep in mind.
+- **For experts** — hot spot search by exact dates with CSV (UTC, FRP, harmonized weight) and same-date
+  comparison across years; daily/weekly series with the satellite used each day; calendar with anomalies,
+  latest month vs history, pre-2012 uncertainty bands for 2° regions; trends and seasonality; full
+  methodology and validation metrics.
 
-- Select an area by drawing rectangles/polygons, or entering coordinates and radius.
-- In Calendar, expand **Pre-2012 uncertainty · 2° monthly regions** to inspect
-  the delivered nominal 90% calibration band for a full 2° region-month.
-  Bounds use the science team's MODIS-count factors; they are not added across
-  regions/months or applied to exact-day searches. A dedicated CSV records the
-  region, estimate, factors and bounds. This delivery awaits Person A's review.
-- **Hotspot search:** query an inclusive UTC date interval (up to 92 days),
-  filter by sensor/applied calendar area, inspect detections and export a CSV
-  (date, time UTC, coordinates, satellite, FRP in MW and harmonized weight).
-  Queries above 200,000 detections require a narrower selection; no partial CSV
-  is offered. Compare the same dates in up to six start years using summed
-  harmonized weights. Before 2012 these exact-day comparisons are approximate;
-  the monthly calibration uncertainty is not an exact-day confidence interval.
-  Incomplete intervals are excluded from numerical comparisons; February 29
-  is never silently moved in non-leap years. The archive follows MODIS before
-  2012 and S-NPP afterward, rather than retaining every sensor in every year.
-- Draw any square, rectangle or shape and see the hotspots inside it, its fire season and the comparison with history.
-- Explore a year-by-month calendar with accessible Viridis and PuOr color scales.
-- View **Fire map** using real harmonized activity or processed sensor observations,
-  with fixed color ranges, a map legend, period controls, tooltips and cell CSV.
-- Compare the latest available month with earlier complete years.
-- Inspect annual activity and monthly seasonality, with incomplete periods identified.
-- Download the monthly regional CSV or export a PNG with the chart camera button.
-- Review the delivered methodology, final-method evidence and versioned validation metrics.
-
-Drawings are drafts until **Apply map selection** is clicked. Coordinate filters
-are applied with **Update**; their map preview is optional. Cell values can be
-hidden for a clearer calendar on narrow screens.
+Hot spots are satellite detections, not unique fires or burned area.
 
 ## Run locally
 
@@ -98,20 +74,6 @@ real file; its output is ignored whenever the real harmonized file exists.
 The mock generator uses MODIS × 3.8 before 2012 and VIIRS counts thereafter.
 This provisional factor is **not validated harmonization**. The mock is local,
 ignored by Git, and identified in the interface, chart titles and CSV exports.
-
-The **Fire map** opens on `harmonized.parquet`, the same series used by Calendar
-and Trends. It preserves fractional converted values and warns about incomplete
-months. The alternative **Sensor observations** product aggregates `n` by
-satellite/day-night from `grid_sat.parquet`, using the science team's preprocessing.
-VIIRS observations and the post-2012 harmonized series therefore agree for the
-same cells and month. The legacy grid is used only if the new satellite grid is
-absent, with an explicit warning.
-
-Fixed Viridis ranges are >0–5, >5–20, >20–100, >100–500 and more than 500 activity
-units per cell/month. The legend identifies observed detections versus
-VIIRS-equivalent units. These are not severity or burned-area classes. Map dates
-are independent of calendar years; sensor-specific MODIS and VIIRS counts are
-not directly comparable. Unfilled cells are unclassified, not proof of no fire.
 
 When `data/processed/harmonized.parquet` exists, the app prioritizes it over the
 mock and checks its basic contract. An invalid real file is reported rather

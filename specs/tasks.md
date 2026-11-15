@@ -170,6 +170,17 @@ Aspecto final, tela cheia e layout móvel permanecem para conferência visual do
 
 ---
 
+## Front-end para leigos (plano `specs/plano_leigos.md`, 15/11/2026)
+- [x] **L1/L2** Mapa único: focos sobre satélite com nomes de lugares, cor pela idade (como o FIRMS), últimos 1/7/30 dias ou datas; desenho da área no mesmo mapa
+- [x] **L3** "Your area" em frases (época do fogo, pior mês, quando se preparar, pior ano, último mês × normal) + calendário + barras por ano + CSV
+- [x] **L4/L5** 3 abas (Map / How it works / For experts); sem barra lateral; apagados Fire map antigo, grade de análise, catálogo, Lat-Lon + raio, filtro de anos
+- [x] **L6/L7** Jargão fora da aba Map (teste automático confere); bloco "Why can we compare 2005 with 2024?"
+- [x] **L9** Testes reescritos (22 passam) e conferência no navegador
+- [x] **L10** Aba How it works
+- [ ] **L8** Teste com 2–3 leigos (3 perguntas do plano)
+
+---
+
 ## Juntos (A + B) — Entrega · A4
 - [x] **J1** Publicado no Streamlit Community Cloud: **https://ember-fire-calendar.streamlit.app** (branch `main`, `app/app.py`, Python 3.14, `app/requirements.txt`). Testado no link público em 14/11/2026: mapa, calendário (out/2026 −28,5% vs mediana; consulta 0,13 s) e busca por datas (1–7/out/2026: 39.965 focos em 0,14 s, CSV). Mantido acordado pelo fluxo `.github/workflows/manter-app-acordado.yml` (visita a cada 6 h)
 - [ ] **J2** (1 h) README final em inglês: problema, método, link do app, dados NASA usados, como rodar, equipe
