@@ -1167,6 +1167,83 @@ def area_controls(first_year: int, last_year: int, expanded: bool) -> str:
     return mode
 
 
+def season_months(medians: pd.Series) -> list[int]:
+    """Months whose typical (median) activity is at least half of the peak month."""
+    if medians.empty or medians.max() <= 0:
+        return []
+    return [int(m) for m in medians.index if medians[m] >= 0.5 * medians.max()]
+
+
+def show_region_summary(series: pd.DataFrame, selected_count: int, start: int) -> None:
+    """Plain-language summary computed only from the data (no generative AI)."""
+    complete = series[~series.incompleto & series.focos.notna()]
+    if complete.empty or complete.focos.sum() == 0:
+        return
+    medians = complete.groupby('mes').focos.median()
+    season = season_months(medians)
+    peak = int(medians.idxmax())
+    first = season[0] if season else peak
+    if season and 1 in season and 12 in season:          # season crossing the new year
+        gaps = [m for m in range(1, 13) if m not in season]
+        first = (max(gaps) % 12) + 1 if gaps else 1
+    prep = [MONTHS[(first - 3) % 12], MONTHS[(first - 2) % 12]]
+    yearly = complete.groupby('ano').focos.sum()
+    worst = int(yearly.idxmax())
+    lines = [f"**Fire season:** {', '.join(MONTHS[m - 1] for m in season)} (peak usually in **{MONTHS[peak - 1]}**).",
+             f"**Prepare in:** {prep[0]}–{prep[1]}, the two months before the season starts.",
+             f"**Year with most activity:** {worst} ({yearly.max():,.0f} hotspots)."]
+    latest = latest_comparison(series)
+    if latest and latest.get('delta') is not None:
+        word = 'above' if latest['delta'] > 0 else 'below'
+        lines.append(f"**Latest complete month ({MONTHS[latest['month'] - 1]} {latest['year']}):** "
+                     f"{latest['value']:,.0f} hotspots, {abs(latest['delta']):.0f}% {word} the usual level "
+                     f"({latest['median']:,.0f}) · {latest['category']}.")
+    notes = [f"Based on {complete.ano.nunique()} years of NASA FIRMS data (MODIS before 2012 converted to the VIIRS scale)."]
+    gaps = int(series.incompleto.sum())
+    if gaps:
+        notes.append(f'{gaps} month(s) with missing satellite days are left out of these numbers.')
+    if selected_count < 64 and start < 2012:
+        notes.append('Small area (under ~2°): values before 2012 are estimates; read the peak month within ±1 month.')
+    with st.container(border=True):
+        st.markdown('#### What this area tells you')
+        st.markdown('\n'.join(f'- {line}' for line in lines))
+        st.caption(' '.join(notes))
+
+
+@st.cache_data
+def raw_vs_harmonized(grid_path: str, version: int, region_wkt: str | None, start: int, end: int) -> pd.DataFrame:
+    """Annual totals if MODIS and VIIRS were simply put side by side (raw) - the problem the project solves."""
+    with duckdb.connect() as con:
+        g = con.execute("SELECT lat, lon, ano, satellite, sum(n) n FROM read_parquet(?) WHERE ano BETWEEN ? AND ? "
+                        "GROUP BY ALL", [grid_path, start, end]).df()
+    if region_wkt:
+        g = g[shapely.contains_xy(shapely.from_wkt(region_wkt), g.lon + .125, g.lat + .125)]
+    raw = g[((g.ano < 2012) & g.satellite.isin(['Terra', 'Aqua'])) | ((g.ano >= 2012) & (g.satellite == 'S-NPP'))]
+    return raw.groupby('ano').n.sum().rename('raw').reset_index()
+
+
+def show_harmonization_demo(series: pd.DataFrame, region_wkt: str | None, start: int, end: int) -> None:
+    grid = ROOT / 'data/processed/grid_sat.parquet'
+    if not grid.exists() or start >= 2012 or end < 2012:
+        return
+    choice = st.segmented_control('Why harmonization matters', ['Without harmonization', 'With harmonization'],
+                                  default='With harmonization', required=True, key='harmonization_demo')
+    raw = raw_vs_harmonized(str(grid), grid.stat().st_mtime_ns, region_wkt, start, end)
+    harm = series.groupby('ano').focos.sum().rename('harmonized').reset_index()
+    data = harm.merge(raw, on='ano', how='left')
+    column = 'raw' if choice == 'Without harmonization' else 'harmonized'
+    fig = go.Figure(go.Bar(x=data.ano, y=data[column],
+                           marker_color=['#9AA5B1' if a < 2012 else '#F28E2B' for a in data.ano]))
+    fig.add_vline(x=2011.5, line_dash='dash', line_color='white')
+    fig.add_annotation(x=2011.5, y=1, yref='paper', text='MODIS | VIIRS', showarrow=False, yanchor='bottom')
+    fig.update_layout(height=280, margin=dict(l=10, r=10, t=30, b=10), yaxis_title='Hotspots per year',
+                      title='Raw counts: the jump in 2012 is the sensor change, not more fire' if column == 'raw'
+                      else 'Harmonized: all years on one scale, so they can be compared')
+    st.plotly_chart(fig, key='harmonization_demo_chart', width='stretch')
+    st.caption('Grey = MODIS years (2001–2011), orange = VIIRS years (2012 on). '
+               'VIIRS sees about 4× more hotspots than MODIS for the same fires, so raw counts cannot be compared across 2012.')
+
+
 def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
                   first_year: int, last_year: int):
     st.subheader('Select an area')
@@ -1194,6 +1271,9 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
     st.info('**How to read the calendar:** each row is a year, each column is a month. '
             '**Blue = few hotspots, red = many.** A star (*) marks a month with missing satellite days. '
             'To see the hotspot dots inside your area, open **Fire map** and turn on **Use selected area**.')
+    if selected_count:
+        show_region_summary(series, selected_count, start)
+        show_harmonization_demo(series, region_wkt, start, end)
     st.subheader('Burning activity calendar')
     if selected_count == 0:
         st.warning('No grid-cell centers from the dataset fall inside this selection. '
