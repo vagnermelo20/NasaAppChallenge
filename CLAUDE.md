@@ -40,6 +40,16 @@ Ideia central: converter **cada foco MODIS** (não a soma do mês) pela física 
 3. **Distribuição de tamanho do fogo** por região × mês: o MODIS só vê a cauda forte; ajustar uma lei de potência truncada (ou lognormal) ao FRP dos focos MODIS e **extrapolar quantos fogos fracos ficaram invisíveis** (estimador de Horvitz–Thompson: cada foco MODIS vale 1/p(FRP) focos "reais", vezes quantos pixels VIIRS cabem nele).
 4. Validar com a mesma regra (ano deixado de fora, região 2° × mês) contra o v2; só adotar se ganhar.
 
+## Ideias para a harmonização v3 (5 subagentes independentes, 15/11/2026)
+| # | Área | Ideia | Ganho estimado | Custo |
+|---|---|---|---|---|
+| 1 | Física/amostragem | k físico por ano: probabilidade de detecção p_M(FRP, ângulo, dia/noite) dos pares Aqua×VIIRS + distribuição de FRP (Horvitz–Thompson integrado), encolhido para o v2 | incerto | 25–35 h |
+| 2 | Distribuições | mesma família: lei de potência truncada ajustada por máxima verossimilhança censurada, prior hierárquico, peso pela informação de Fisher | +2 a 5 pp (talvez 0) | 15–25 h |
+| 3 | Machine learning | LightGBM no resíduo do v2 (features só do MODIS) + intervalos conformais; adotar só se ganhar em 8/10 anos | 66→70–72% | 10–14 h |
+| 4 | Bayes espaço-temporal | NegBin hierárquico com BYM2 (vizinhança), inclinação β_r ≠ 1 (não proporcional), sazonalidade RW2, ano AR(1) (R-INLA) | 66→70–72% | 15–25 h |
+| 5 | Homogeneização | quantile mapping condicional (bloco × estação), trata MODIS = 0, k varia com o nível de fogo | +3 a 8 pp | 6–10 h |
+Convergência: 1 e 2 chegaram sozinhos à mesma ideia (k pela distribuição de FRP); 4 e 5 apontam a mesma falha do v2 (razão não proporcional: k muda com o nível de fogo). Plano: primeiro um diagnóstico de 1 h (o k depende do nível de MODIS? inclinação log V × log M < 1?); se sim, testar o quantile mapping (5) e a inclinação β (versão simples do 4); depois o k físico (1+2).
+
 ## Diário
 - 14/11/2026: Fases 1–3, prova, base de focos, publicação, revisões independentes (ver specs/tasks.md).
 - 15/11/2026: cores azul→vermelho, textos simples, filtro de data no mapa, mapa único; regras "só main" e "sem Claude nos commits"; este arquivo criado.
