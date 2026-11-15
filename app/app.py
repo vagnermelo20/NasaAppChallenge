@@ -1244,6 +1244,39 @@ def show_harmonization_demo(series: pd.DataFrame, region_wkt: str | None, start:
                'VIIRS sees about 4× more hotspots than MODIS for the same fires, so raw counts cannot be compared across 2012.')
 
 
+def show_area_hotspots(series: pd.DataFrame, region_wkt: str | None) -> None:
+    """Draw a rectangle/polygon -> see the hotspots inside it, right here (no named regions)."""
+    if not region_wkt:
+        return
+    months = (series[~series.incompleto & (series.focos.fillna(0) > 0)]
+              .sort_values(['ano', 'mes'], ascending=False)[['ano', 'mes']])
+    if months.empty:
+        return
+    options = [(int(a), int(m)) for a, m in months.itertuples(index=False, name=None)]
+    st.markdown('#### Hotspots inside your area')
+    year, month = st.selectbox('Month to show', options, format_func=lambda o: f'{MONTHS[o[1] - 1]} {o[0]}',
+                               key='area_hotspots_month', help='Most recent complete month first.')
+    point_file = ROOT / f'data/processed/focos/focos_{year}.parquet'
+    if not point_file.exists():
+        st.info('Individual detections are not available for this year.')
+        return
+    points = hotspot_locations(str(point_file), point_file.stat().st_mtime_ns, year, month, None, region_wkt)
+    area = shapely.from_wkt(region_wkt)
+    west, south, east, north = area.bounds
+    view = folium.Map(tiles=None, control_scale=True)
+    folium.TileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+                     attr='Esri World Imagery', name='Satellite').add_to(view)
+    folium.GeoJson(mapping(area), style_function=lambda _: {'color': '#FDAE61', 'weight': 2, 'fillOpacity': 0}).add_to(view)
+    view.fit_bounds([[south, west], [north, east]])
+    if len(points) > MAX_MAP_POINTS:
+        st.warning(f'{len(points):,} hotspots: too many to draw. Draw a smaller area.')
+    else:
+        add_hotspot_locations(view, points, .9)
+    st_folium(view, height=420, returned_objects=[], key='area_hotspots_map', use_container_width=True)
+    st.caption(f'**{len(points):,} hotspots** detected inside your area in {MONTHS[month - 1]} {year}. '
+               'Each red dot is one satellite detection of unusual heat; click a dot for date, time, satellite and fire power.')
+
+
 def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
                   first_year: int, last_year: int):
     st.subheader('Select an area')
@@ -1270,9 +1303,10 @@ def calendar_view(mode: str, coverage: pd.DataFrame, path: str, is_mock: bool,
     st.caption(f'Your area covers {selected_count:,} map squares (about 28 km each). Numbers are hotspot counts on one common satellite scale, so all years can be compared.')
     st.info('**How to read the calendar:** each row is a year, each column is a month. '
             '**Blue = few hotspots, red = many.** A star (*) marks a month with missing satellite days. '
-            'To see the hotspot dots inside your area, open **Fire map** and turn on **Use selected area**.')
+            'Draw a square, rectangle or any shape on the map and click **Apply map selection**: the hotspots inside it appear right below.')
     if selected_count:
         show_region_summary(series, selected_count, start)
+        show_area_hotspots(series, region_wkt)
         show_harmonization_demo(series, region_wkt, start, end)
     st.subheader('Burning activity calendar')
     if selected_count == 0:
