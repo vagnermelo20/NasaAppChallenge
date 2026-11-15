@@ -766,7 +766,9 @@ def calendar_figure(series: pd.DataFrame, anomaly: bool = False, show_values: bo
         fig.add_hline(y=position, line_dash='dash', line_color='white', line_width=2)
     fig.update_layout(height=max(350, len(values) * 26 + 120),
                       margin=dict(l=10, r=10, t=30, b=10))
-    fig.update_yaxes(dtick=1)
+    # Anos como categorias: "2001", "2002"... parecem números e o Plotly faria um eixo linear, misturando
+    # anos (≈2000) com as posições 0..N da linha 2011|2012 e espremendo o calendário em poucos pixels.
+    fig.update_yaxes(type='category', dtick=1)
     return fig
 
 
