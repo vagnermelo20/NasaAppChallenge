@@ -846,8 +846,8 @@ def annual_figure(series: pd.DataFrame):
     fig = go.Figure(go.Bar(x=annual.ano, y=annual.total,
                            marker_color=['#F4A582' if flag else '#D6604D' for flag in annual.incomplete],
                            hovertemplate='%{x}: %{y:,.0f} hot spots<extra></extra>'))
-    fig.update_layout(height=300, margin=dict(l=10, r=10, t=40, b=10), xaxis_title=None,
-                      yaxis_title=None, title='Hot spots per year')
+    fig.update_layout(height=300, margin=dict(l=10, r=10, t=10, b=10), xaxis_title=None,
+                      yaxis_title='Hot spots per year')
     return fig
 
 
@@ -917,11 +917,6 @@ def add_heat(view: folium.Map, cells: pd.DataFrame, size: float = .05) -> None:
 # ---------------------------------------------------------------------------
 # Everything about the drawn area, on the Map tab
 # ---------------------------------------------------------------------------
-SOURCE_COLORS = {'snpp': '#F28E2B', 'noaa20': '#B07AA1', 'modis_convertido': '#9AA5B1'}
-SOURCE_NAMES = {'snpp': 'Newer satellite (VIIRS S-NPP)', 'noaa20': 'Backup newer satellite (VIIRS NOAA-20)',
-                'modis_convertido': 'Older satellites, corrected (MODIS)'}
-
-
 def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
     st.markdown('#### Day, week or month')
     scale = st.segmented_control('See hot spots per', ['Day', 'Week', 'Month'], default='Week', required=True,
@@ -939,12 +934,12 @@ def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
             st.info('No hot spots in this area and these dates.')
             return
         if scale == 'Day':
-            fig = px.bar(data, x='period', y='hotspots', color='fonte', color_discrete_map=SOURCE_COLORS,
-                         labels={'fonte': 'Satellite used'})
-            fig.for_each_trace(lambda t: t.update(name=SOURCE_NAMES.get(t.name, t.name)))
-            note = ('Each day uses the best satellite that looked that day. Days with no satellite at all are left '
-                    'empty (that is not the same as no fire). One day can change a lot because of clouds; '
-                    'weeks and months are steadier.')
+            # One harmonized series: all satellites already joined on EMBER's single common scale.
+            data = data.groupby('period', as_index=False).hotspots.sum()
+            fig = px.bar(data, x='period', y='hotspots', color_discrete_sequence=['#F46D43'])
+            note = ('Hot spots per day on EMBER\'s single common scale, the same one used for every year. '
+                    'Days with no satellite data are left empty (that is not the same as no fire). '
+                    'One day can change a lot because of clouds; weeks and months are steadier.')
         else:
             data['status'] = np.where(data.incomplete, 'A satellite day is missing', 'All days seen')
             fig = px.bar(data, x='period', y='hotspots', color='status',

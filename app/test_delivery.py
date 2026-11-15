@@ -413,6 +413,11 @@ class ApplicationTests(unittest.TestCase):
                 app.session_state['timescale'] = scale
                 app.run()
                 self.assertFalse(app.exception, scale)
+            app.session_state['timescale'] = 'Day'
+            app.run()
+            notes = ' '.join(c.value for c in app.caption)
+            self.assertIn('single common scale', notes)          # one unified series, no satellite names
+            self.assertNotIn('best satellite', notes)
 
 
 if __name__ == '__main__':
