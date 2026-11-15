@@ -74,4 +74,4 @@ print(con.execute("SELECT fonte, count(*) linhas, round(sum(focos)) focos FROM d
 chk = con.execute(f"""WITH m AS (SELECT lat, lon, year(data) ano, month(data) mes, sum(focos) s FROM diario WHERE fonte <> 'noaa20' GROUP BY ALL)
 SELECT max(abs(m.s - h.focos_harmonizados)) dif_max FROM m JOIN '{(PROC / 'harmonized.parquet').as_posix()}' h USING (lat, lon)
 WHERE h.ano = m.ano AND h.mes = m.mes AND NOT h.dado_incompleto""").fetchone()[0]
-print('Diferença máxima diário→mensal (meses completos, sem NOAA-20):', chk)
+print('Diferença máxima diario->mensal (meses completos, sem NOAA-20):', chk)
