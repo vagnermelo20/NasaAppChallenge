@@ -6,10 +6,10 @@ Fill the remaining `TODO` item (demo link) before clicking **Submit for Judging*
 ---
 
 ## Project Name
-EMBER — Where and when does Brazil burn?
+SHFD — The Single Harmonized Flame Detector
 
 ## High-Level Project Summary
-EMBER joins 25 years of NASA satellite fire detections into one consistent record. The older MODIS satellites (since 2001) and the newer VIIRS (since 2012) see the same fires differently: VIIRS has much smaller pixels and counts about four times more hot spots. Put side by side, the record shows a false jump in 2012. We harmonized MODIS to the VIIRS scale, region by region and month by month, and tested the result on years that were left out of the calibration (national annual error 1.6%). On top of this single series we built a free web app for anyone, with no satellite knowledge: draw an area on the map (or type a latitude and longitude) and see its fire season, its worst months and years, whether the last month was above or below normal, and every hot spot in it. This matters because fire managers can only compare today with the past if every year is measured with the same ruler.
+SHFD joins 25 years of NASA satellite fire detections into one consistent record. The older MODIS satellites (since 2001) and the newer VIIRS (since 2012) see the same fires differently: VIIRS has much smaller pixels and counts about four times more hot spots. Put side by side, the record shows a false jump in 2012. We harmonized MODIS to the VIIRS scale, region by region and month by month, and tested the result on years that were left out of the calibration (national annual error 1.6%). On top of this single series we built a free web app for anyone, with no satellite knowledge: draw an area on the map (or type a latitude and longitude) and see its fire season, its worst months and years, whether the last month was above or below normal, and every hot spot in it. This matters because fire managers can only compare today with the past if every year is measured with the same ruler.
 
 ## Link to Project Demo
 TODO — public link to the 7-slide deck or the 30-second video (English, or English subtitles).
@@ -21,9 +21,9 @@ TODO — public link to the 7-slide deck or the 30-second video (English, or Eng
 ## Detailed Project Description
 
 ### What exactly does it do?
-EMBER is a web app with two tabs.
+SHFD is a web app with two tabs.
 
-**Map.** A satellite map of NASA FIRMS hot spots, from the latest day to any period since January 2001. From far away the hot spots appear as orange/yellow glowing areas measured on the same unified scale as the rest of the app, with a fixed ruler, so September 2005 and September 2024 can be compared directly on the map; when you zoom in to a smaller area, every hot spot on screen is drawn as a dot, with no cap, loaded on demand so the map stays fast. Clicking a dot shows when it was seen (Brasília time) and how strong its heat was, as a percentile that is comparable across the whole record. The app never asks the user to think about sensors: it shows only the unified record. The user chooses an area by drawing a box or shape on the same map, or by typing a latitude, longitude and distance in km. For that area EMBER shows:
+**Map.** A satellite map of NASA FIRMS hot spots, from the latest day to any period since January 2001. From far away the hot spots appear as orange/yellow glowing areas measured on the same unified scale as the rest of the app, with a fixed ruler, so September 2005 and September 2024 can be compared directly on the map; when you zoom in to a smaller area, every hot spot on screen is drawn as a dot, with no cap, loaded on demand so the map stays fast. Clicking a dot shows when it was seen (Brasília time) and how strong its heat was, as a percentile that is comparable across the whole record. The app never asks the user to think about sensors: it shows only the unified record. The user chooses an area by drawing a box or shape on the same map, or by typing a latitude, longitude and distance in km. For that area SHFD shows:
 - every hot spot in it on the chosen dates, as a table and a CSV download (no row limit), with each hot spot's weight on the common scale;
 - plain-language sentences: fire season, the worst month, when to get ready, the worst year, and whether the last full month was above or below normal;
 - a year × month fire calendar (blue = few, red = many), optionally as % above or below a usual year;

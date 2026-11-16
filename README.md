@@ -1,10 +1,12 @@
-# EMBER — Where and when does Brazil burn?
+# SHFD — The Single Harmonized Flame Detector
+
+Where and when does Brazil burn?
 
 NASA Space Apps Challenge 2026 · Challenge: **Harmonization of MODIS and VIIRS Hot Spots** · Team Melo
 
 **Live app:** https://ember-fire-calendar.streamlit.app
 
-EMBER joins 25 years of NASA satellite fire detections over Brazil (2001–2026) into **one single,
+SHFD joins 25 years of NASA satellite fire detections over Brazil (2001–2026) into **one single,
 consistent record**, and puts it in a free web app that anyone can use without knowing anything
 about satellites.
 
@@ -52,7 +54,7 @@ Two tabs: **Map** and **How it works**.
   scale with a fixed ruler, so the same month in 2005 and 2024 can be compared directly. Zoom in and
   every hot spot on screen becomes a red dot (raw detections, loaded on demand); click one to see when
   it was seen (Brasília time) and its heat strength as a percentile.
-- **Your area:** draw an area or type a latitude, longitude and distance. EMBER lists every hot spot
+- **Your area:** draw an area or type a latitude, longitude and distance. SHFD lists every hot spot
   in it (table + CSV, no row limit) and shows plain sentences (fire season, best time to get ready,
   worst year, last month vs usual), a year × month fire calendar, hot spots per day/week/month,
   a usual year, hot spots per year and a monthly CSV. Everything except the red dots uses the unified record.

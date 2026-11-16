@@ -1,4 +1,4 @@
-"""EMBER: where and when Brazil burns, explained for everyone (plan in specs/plano_leigos.md)."""
+"""SHFD: where and when Brazil burns, explained for everyone (plan in specs/plano_leigos.md)."""
 import calendar
 import json
 import math
@@ -345,7 +345,7 @@ def export_table(series: pd.DataFrame, coverage: pd.DataFrame,
 
 def show_how_it_works(first_year: int, last_year: int) -> None:
     """Plain-language explanation of the project for people with no science background."""
-    st.subheader('How EMBER works, in simple words')
+    st.subheader('How SHFD works, in simple words')
     st.markdown(
         '#### 1. Satellites look for heat\n'
         'NASA satellites pass over Brazil several times a day. They measure the heat coming from the ground. '
@@ -353,7 +353,7 @@ def show_how_it_works(first_year: int, last_year: int) -> None:
         '**hot spot**. It can indicate active burning; a detection is not a confirmed separate fire.\n\n'
         f'#### 2. One single record, from {first_year} to {last_year}\n'
         'Over the years NASA has watched fires with different instruments, and each one counted them in its own way. '
-        'EMBER joins all of them into **one single, unified record**, measured with the same ruler in every year. '
+        'SHFD joins all of them into **one single, unified record**, measured with the same ruler in every year. '
         'The ruler was built for monthly activity in regions, so months and large areas are the most reliable.\n\n'
         '#### 3. How the records were joined\n'
         'For ten years (2012–2021) the instruments observed overlapping regions and periods. '
@@ -366,7 +366,7 @@ def show_how_it_works(first_year: int, last_year: int) -> None:
         '- For all of Brazil, the yearly total is off by only about **2%**.\n'
         '- For a large region (about 200 km wide) in one year, **9 out of 10** guesses are within 20%.\n'
         '- For a large region in one single month it is harder: **2 out of 3** are within 20%.\n\n'
-        '#### 5. What you can do with EMBER\n'
+        '#### 5. What you can do with SHFD\n'
         '- **Explore recorded heat detections** on the Map tab, on available dates since 2001.\n'
         '- **Draw a box** on the map, or **type a place** (latitude and longitude), and list or download its hot spots.\n'
         '- **Find its fire season**: which months burn most, and when to get ready.\n'
@@ -562,7 +562,7 @@ def unified_notice() -> str:
             f'The red dots <span style="color:{DOT_COLOR}">●</span> on this map are the raw satellite detections, '
             'exactly as each satellite saw them (not unified). '
             'Everything else on this page (the glow, the totals, the calendar and every chart) '
-            'uses EMBER\'s single unified record.</div>')
+            'uses SHFD\'s single unified record.</div>')
 
 
 def start_end_dates(key: str, start: date, end: date, newest: date) -> tuple[date, date]:
@@ -676,7 +676,7 @@ def area_map() -> None:
         period = (day_to.strftime('%d %b %Y') if day_from == day_to
                   else f'{day_from.strftime(start_format)} – {day_to:%d %b %Y}')
         st.caption(f'**{common:,.0f} hot spots** · {period}',
-                   help='Counted on EMBER\'s single common scale, the same for every year since 2001.')
+                   help='Counted on SHFD\'s single common scale, the same for every year since 2001.')
     if total == 0:
         st.caption('No hot spots in these days. This can also mean no satellite data, not only no fire.')
     # Dots: only for the part of the map on screen, and only when zoomed in. Then ALL of them are drawn,
@@ -871,10 +871,10 @@ def show_timescales(series: pd.DataFrame, region_wkt: str | None) -> None:
             st.info('No hot spots in this area and these dates.')
             return
         if scale == 'Day':
-            # One harmonized series: all satellites already joined on EMBER's single common scale.
+            # One harmonized series: all satellites already joined on SHFD's single common scale.
             data = data.groupby('period', as_index=False).hotspots.sum()
             fig = px.bar(data, x='period', y='hotspots', color_discrete_sequence=['#F46D43'])
-            note = ('Hot spots per day on EMBER\'s single common scale, the same one used for every year. '
+            note = ('Hot spots per day on SHFD\'s single common scale, the same one used for every year. '
                     'Before 2012 these daily estimates are approximate: the conversion was calibrated monthly, '
                     'not for exact-day comparisons. '
                     'Days with no satellite data are left empty (that is not the same as no fire). '
@@ -1000,14 +1000,14 @@ def search_table(points: pd.DataFrame) -> pd.DataFrame:
 
 def show_about(coverage: pd.DataFrame) -> None:
     last = coverage.iloc[-1]
-    st.markdown('**About EMBER.** A NASA Space Apps 2026 prototype. The archive ends in '
+    st.markdown('**About SHFD.** A NASA Space Apps 2026 prototype. The archive ends in '
                 f'{MONTHS[int(last.mes) - 1]} {int(last.ano)}; it is not a real-time emergency alert system. '
                 '[NASA FIRMS](https://firms.modaps.eosdis.nasa.gov/) · '
                 '[Project repository](https://github.com/vagnermelo20/NasaAppChallenge)')
 
 
 def main() -> None:
-    st.set_page_config(page_title='EMBER · Where and when Brazil burns', page_icon=':material/local_fire_department:',
+    st.set_page_config(page_title='SHFD · The Single Harmonized Flame Detector', page_icon=':material/local_fire_department:',
                        layout='wide', initial_sidebar_state='collapsed')
     if not REAL.exists() and not MOCK.exists():
         st.warning('Generate the local development dataset to open the app.')
@@ -1025,7 +1025,7 @@ def main() -> None:
     is_mock = Path(path) == MOCK
     for key, value in [('regiao', None), ('region_label', 'All of Brazil'), ('map_revision', 0)]:
         st.session_state.setdefault(key, value)
-    st.markdown('## :material/local_fire_department: EMBER · Where and when does Brazil burn?')
+    st.markdown('## :material/local_fire_department: SHFD · The Single Harmonized Flame Detector')
     last = coverage.iloc[-1]
     st.caption('Each dot is a recorded **hot spot**: heat seen from space by a NASA satellite. '
                f'Archive: {first_year} to {MONTHS[int(last.mes)-1]} {last_year}. '

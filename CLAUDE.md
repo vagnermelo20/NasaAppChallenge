@@ -1,6 +1,6 @@
 # CLAUDE.md — arquivo central do projeto (ler no início de toda sessão)
 
-Projeto: **NASA Space Apps 2026 — "MODIS and VIIRS Hot Spots Harmonization"**. App **EMBER**.
+Projeto: **NASA Space Apps 2026 — "MODIS and VIIRS Hot Spots Harmonization"**. App **SHFD — The Single Harmonized Flame Detector** (antes EMBER).
 Link público: https://ember-fire-calendar.streamlit.app · Repo: github.com/vagnermelo20/NasaAppChallenge
 
 ## Como retomar numa conversa nova (comece por aqui)
@@ -84,6 +84,7 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (noite, 22:30): projeto **renomeado de EMBER para SHFD — The Single Harmonized Flame Detector** (pedido do usuário) no app, README, submissão e slides 1, 4 e 5. O link do app continua ember-fire-calendar.streamlit.app.
 - 15/11/2026 (noite, 21:30): **deck oficial** = Canva da equipe (canva.link/78y8fzbvozzbs0t, design DAHbBWABi_A, 7 slides). Escritos em inglês e salvos: 1 capa (EMBER, desafio completo, Team Melo), 2 desafio (salto de 2012), 3 solução (Clean/Learn/Convert + gráfico do registro único), 4 app (área, calendário, estação), 5 relevância do trabalho + dados NASA usados, 6 arquitetura simples + testes como viabilidade, 7 próximos passos (global, subir de 66% rumo ao teto de 85%), impacto e links. O deck antigo (DAHbA4SUefM) e `docs/EMBER_slides.*` ficaram obsoletos.
 - 15/11/2026 (noite): **aviso grande em preto acima do mapa** (`unified_notice`): as bolinhas vermelhas são as detecções cruas de cada satélite (não unificadas); todo o resto (mancha, totais, calendário, gráficos) usa o registro unificado. Gráficos novos para slides: `reports/slides/results_summary.png` e `reports/slides/test_results_by_area.png` (100% Brasil/ano, 92% regiões/ano, 66% regiões/mês, teto 85% de dois VIIRS iguais). 26 testes ok.
 - 15/11/2026 (tarde, 17:30): **slides no Canva** com imagens reais (gráfico do registro como os satélites viram, registro único 2001–2025, prova antes/depois com 66%, 4 prints do app, mapa set/2024, QR novo e link corrigido); imagens em `reports/slides/`. Equipe: **Team Melo** — Vagner Melo (dados/ciência) e Nathália Mello (app); preenchido na capa, no README e em `docs/submissao_spaceapps.md`.
