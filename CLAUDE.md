@@ -38,7 +38,7 @@ Testado e rejeitado: k dia/noite, vizinhança 3×3, climatologia como prior, cov
 Testes: `.venv/Scripts/python -m unittest app.test_delivery` (26 testes). Mantido acordado por `.github/workflows/manter-app-acordado.yml`.
 
 ## Pendências (atualizado 15/11/2026)
-- **Entrega:** link da demo (slides no Canva, público), envio no portal (texto pronto em `docs/submissao_spaceapps.md`).
+- **Entrega:** FEITA (submetido em 15/11/2026, noite). Ainda dá para editar e reenviar até 23:59.
 - **Série diária:** NOAA-20 de 2026 pela API (03–14/11/2026 vazios; S-NPP sem dados desde 02/11); faixa de incerteza diária (D4); medir concordância diária/semanal (D1).
 - **Harmonização v3:** lei de potência e quantile mapping testados e rejeitados; resta testar o k físico pela distribuição de FRP (expectativa baixa).
 - **App para leigos:** falta o L8 (mostrar a 2–3 leigos e corrigir onde travarem).
@@ -84,6 +84,7 @@ v2 60,3% · lei de potência V=c·M^β 60,8% (erro anual 3,1%, pior) · quantile
 O v2 completo (com refino 2°) continua o melhor (66%). Próxima candidata, se houver tempo: k físico pela distribuição de FRP (ideias 1+2), com expectativa baixa.
 
 ## Diário
+- 15/11/2026 (noite, ~22:10): **projeto SUBMETIDO para julgamento** no portal do Space Apps (Team Melo, status "Project Submitted for Judging"). Campos preenchidos: resumo, demo (canva.link/78y8fzbvozzbs0t), link do app, detalhes, uso de SI, NASA Data (5 links FIRMS) e Other Data (14 links: código, testes, validação, métricas, metodologia, métodos rejeitados, Esri, bibliotecas, Claude/Codex).
 - 15/11/2026 (noite, 22:30): projeto **renomeado de EMBER para SHFD — The Single Harmonized Flame Detector** (pedido do usuário) no app, README, submissão e slides 1, 4 e 5. O link do app continua ember-fire-calendar.streamlit.app.
 - 15/11/2026 (noite, 21:30): **deck oficial** = Canva da equipe (canva.link/78y8fzbvozzbs0t, design DAHbBWABi_A, 7 slides). Escritos em inglês e salvos: 1 capa (EMBER, desafio completo, Team Melo), 2 desafio (salto de 2012), 3 solução (Clean/Learn/Convert + gráfico do registro único), 4 app (área, calendário, estação), 5 relevância do trabalho + dados NASA usados, 6 arquitetura simples + testes como viabilidade, 7 próximos passos (global, subir de 66% rumo ao teto de 85%), impacto e links. O deck antigo (DAHbA4SUefM) e `docs/EMBER_slides.*` ficaram obsoletos.
 - 15/11/2026 (noite): **aviso grande em preto acima do mapa** (`unified_notice`): as bolinhas vermelhas são as detecções cruas de cada satélite (não unificadas); todo o resto (mancha, totais, calendário, gráficos) usa o registro unificado. Gráficos novos para slides: `reports/slides/results_summary.png` e `reports/slides/test_results_by_area.png` (100% Brasil/ano, 92% regiões/ano, 66% regiões/mês, teto 85% de dois VIIRS iguais). 26 testes ok.
